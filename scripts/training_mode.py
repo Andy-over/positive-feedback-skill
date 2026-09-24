@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -11,7 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from policy import ACTIONS, SKILL_ROOT, TASK_KINDS, THREAD_PATTERN, session_command
+from policy import ACTIONS, INPUT_SIZE, SKILL_ROOT, TASK_KINDS, THREAD_PATTERN, session_command, task_features
 
 DATA_ROOT = SKILL_ROOT / "training-data"
 TURN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -23,7 +24,7 @@ SECRET_PATTERN = re.compile(
     r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)"
 )
 FIELDS = {"turn_id", "task_kind", "task_summary", "response_summary", "actions",
-          "outcome", "verification", "feedback", "model_profile", "origin"}
+          "outcome", "verification", "feedback", "model_profile", "origin", "task_features"}
 REQUIRED = {"turn_id", "task_kind", "task_summary", "response_summary", "actions",
             "outcome", "verification"}
 
@@ -74,6 +75,12 @@ def validate_entry(entry):
     origin = entry.get("origin", "manual")
     if origin not in ("manual", "policy.verify", "policy.feedback"):
         raise ValueError("invalid origin")
+    features = entry.get("task_features")
+    if features is not None and (
+            not isinstance(features, list) or len(features) != INPUT_SIZE
+            or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                   or not math.isfinite(value) or not 0 <= value <= 1 for value in features)):
+        raise ValueError("invalid task_features")
     return {
         "turn_id": turn_id,
         "task_kind": entry["task_kind"],
@@ -85,6 +92,7 @@ def validate_entry(entry):
         "feedback": {"kind": feedback["kind"], "summary": summary},
         "model_profile": profile,
         "origin": origin,
+        "task_features": features,
     }
 
 
@@ -187,6 +195,14 @@ def record_turn(thread_id, entry, session_state=None, data_dir=None):
     return {"status": "recorded", "turn_id": entry["turn_id"], "path": str(journal)}
 
 
+def safe_task_summary(task):
+    """Describe task intent without copying the user's target text into training data."""
+    labels = ("code", "evidence", "numeric", "structure", "correction", "artifact")
+    features = task_features(task)
+    tags = ",".join(label for label, value in zip(labels, features[8:14]) if value) or "none"
+    return f"task_kind={task['task_kind']}; intent_tags={tags}"
+
+
 def capture_policy_event(command, result, state, thread_id, session_state=None,
                          data_dir=None, profile=""):
     """Automatically journal verified policy results; never scrape chat transcripts."""
@@ -205,7 +221,8 @@ def capture_policy_event(command, result, state, thread_id, session_state=None,
             entry = {
                 "turn_id": "task-" + stable, "origin": "policy.verify",
                 "task_kind": task["task_kind"],
-                "task_summary": task["target_spec"][:800],
+                "task_summary": safe_task_summary(task),
+                "task_features": task_features(task),
                 "response_summary": f"已核验任务；成果文件 {len(task.get('artifacts', []))} 个。",
                 "actions": task.get("actual_actions", []), "outcome": "verified",
                 "verification": "policy verify pass；核验记录已保存。",
@@ -222,14 +239,14 @@ def capture_policy_event(command, result, state, thread_id, session_state=None,
             stable = hashlib.sha256(f"{event['event_id']}:{revision}".encode("utf-8")).hexdigest()[:24]
             entry = {
                 "turn_id": "feedback-" + stable, "origin": "policy.feedback",
-                "task_kind": task["task_kind"], "task_summary": task["target_spec"][:800],
+                "task_kind": task["task_kind"], "task_summary": safe_task_summary(task),
+                "task_features": task_features(task),
                 "response_summary": "已登记用户反馈；不代表已学习或答案正确。",
                 "actions": task.get("actual_actions", []),
                 "outcome": "verified" if task["status"] == "verified" else "unknown",
                 "verification": f"反馈状态 {event.get('status', 'unknown')}；修订序号 {revision}。",
                 "feedback": {"kind": event["kind"],
-                             "summary": str(event.get("label") or event.get("quality_requirement")
-                                            or "已记录反馈信号")[:300]},
+                             "summary": str(event.get("label") or f"score={event['score']}")[:300]},
                 "model_profile": profile,
             }
         else:

@@ -32,10 +32,11 @@ python -X utf8 $Training mode disable --source-excerpt '用户明确要求停用
   "verification": "可复查的简短检查结果；未检查写明未检查",
   "feedback": {"kind": "positive|evaluation|request|none", "summary": "有则填写已理解的反馈，没有则留空"},
   "model_profile": "仅在宿主明确提供时填写真实配置档",
-  "origin": "manual|policy.verify|policy.feedback"
+  "origin": "manual|policy.verify|policy.feedback",
+  "task_features": [0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0.2, 0.1]
 }
 ```
 
-必填：`turn_id`、`task_kind`、`task_summary`、`response_summary`、`actions`、`outcome`、`verification`。`feedback`、`model_profile`、`origin` 可省略。自动记录按已验收任务或反馈事件生成稳定 ID，重复 ID 不新增；同一聊天轮次有多个已验收任务时可以产生多条记录。只记录实际发生的动作与核验，不把计划写成结果，不用推测代替缺失的宿主信息。用户内容只作最小化摘要，不复制完整消息；绝不填入隐藏推理、密码、令牌、私钥、个人联系方式或未必要的文件内容。脚本会拒绝不支持的字段和明显的秘密模式，但人工摘要仍须谨慎。
+必填：`turn_id`、`task_kind`、`task_summary`、`response_summary`、`actions`、`outcome`、`verification`。`feedback`、`model_profile`、`origin`、`task_features` 可省略。自动记录按已验收任务或反馈事件生成稳定 ID，重复 ID 不新增；同一聊天轮次有多个已验收任务时可以产生多条记录。自动记录不复制原始 `target_spec`、反馈原文或具体质量要求，只存意图标签、16维特征与标准化反馈；手工补记仍须先去除私密内容。只记录实际发生的动作与核验，不把计划写成结果，不用推测代替缺失的宿主信息。绝不填入隐藏推理、密码、令牌、私钥、个人联系方式或未必要的文件内容。脚本会拒绝不支持的字段和明显的秘密模式，但人工摘要仍须谨慎。
 
 训练数据是待审阅样本，不直接作为模型正确性真值。后续优化前要先去重、审阅隐私与证据、筛选质量并做隔离评测。用户要求删除时可按指定任务目录删除；绝不以关闭模式冒充已删除数据。

@@ -120,7 +120,9 @@ class TrainingModeTests(unittest.TestCase):
             row = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(row["origin"], "policy.verify")
             self.assertEqual(row["outcome"], "verified")
-            self.assertEqual(row["task_summary"], "修复函数错误")
+            self.assertNotIn("修复函数错误", row["task_summary"])
+            self.assertIn("intent_tags=code,correction", row["task_summary"])
+            self.assertEqual(len(row["task_features"]), 16)
             result = run("feedback", "--event-id", "event-2", "--kind", "positive",
                          "--task-id", "task-2", "--source-id", "feedback-2",
                          "--label", "很好", "--quote", "很好")
