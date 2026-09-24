@@ -1,6 +1,6 @@
 ---
 name: positive-feedback
-description: Apply explicitly enabled, evidence-gated feedback to verified actions and factual corrections. Continue while active, including after compaction, until disabled; inspect or edit without recording.
+description: Apply explicitly enabled, evidence-gated feedback to verified actions and factual corrections. Optionally record opt-in, minimized per-turn training data for later skill improvement. Continue while active, including after compaction, until disabled; inspect or edit without recording.
 ---
 
 # 反馈驱动的执行与产出调整
@@ -10,6 +10,14 @@ description: Apply explicitly enabled, evidence-gated feedback to verified actio
 优先改善核查、实际执行、交付物和验收。用户指出事实错误时，核对可追溯来源、修正错误并标明不确定之处；道歉不能代替纠错。先完成用户明确要求，再用已核验的动作证据更新控制器。事实、安全规则和验收标准高于控制器建议。
 
 仅当前任务明确启用后才记录；不追溯旧对话，不把示例、引用、反讽或模型自评当反馈。脚本失败时不得声称已学习。
+
+## 可选训练数据模式
+
+仅在本任务已经启用本 skill，且用户明确要求**启用训练模式**后，运行 `scripts/training_mode.py mode enable --source-excerpt '本轮真实原文短句'`。它按宿主 `CODEX_THREAD_ID` 隔离；`policy.py` 在任务通过验收或反馈成功登记后自动写最小化记录，不再依赖每轮额外调用 `record`。没有经过控制器登记与验收的普通聊天不会被自动捕获；必要时可显式 `record`，但不能伪称自动覆盖全部对话。用户明确要求关闭训练模式时运行 `mode disable`；停用 skill 立即停止记录，重新启用 skill 不会自动恢复旧训练授权。缺少稳定任务 ID、启用状态或写入失败时，停止记录并如实说明。命令、字段与隐私边界见 [训练数据模式](references/training-data-mode.md)。
+
+数据保存在本 skill 主文件夹的 `training-data/<thread-id>/`，**不是**当前项目目录。只保存任务摘要、执行动作、结果、核验状态及用户反馈摘要；不保存完整聊天、隐藏推理、凭据或不必要的私密内容。不得把此目录上传、打包或同步到公开仓库。记录数据仅供以后人工检查与优化；不自动启动模型训练，也不改变当前模型或控制器参数。审阅或修改 skill 不启用训练模式。
+
+动作控制器从旧版8维任务标志扩展为16维；新增目标文本的六类意图、长度和必需动作密度，不增加模型调用。新任务可学习更细的内容差异；旧任务维持原特征，旧参数无损补零读取。有简短可信目标时，`context`/`session-context` 可传 `--target-spec`；不要传秘密或全文对话。详见 [控制器数学](references/controller.md)。
 
 `audit` 用于审阅或修改 skill，不写偏好；`observe` 只识别候选信号；只有 `active` 才登记、验收和学习。提到、查看或修改 skill 不会启用它。
 

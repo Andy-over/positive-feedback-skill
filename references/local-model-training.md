@@ -1,6 +1,6 @@
 # 独立本地检查点训练
 
-`scripts/train_local_model.py` 使用本地 PyTorch 和 Transformers，对用户明确选定的本地 causal-LM 检查点做全参数反向传播。它只接受本地 `safetensors` 检查点和 tokenizer，禁用远程加载及远程自定义代码；训练结果保存为新的目录，不覆盖输入。该路径与 `policy.py learn` 的620参数动作控制器分开。
+`scripts/train_local_model.py` 使用本地 PyTorch 和 Transformers，对用户明确选定的本地 causal-LM 检查点做全参数反向传播。它只接受本地 `safetensors` 检查点和 tokenizer，禁用远程加载及远程自定义代码；训练结果保存为新的目录，不覆盖输入。该路径与 `policy.py learn` 的748参数动作控制器分开。
 
 训练清单和独立验证清单均为JSONL，每行包含 `event_id`、`task_id`、`artifact_path`、`prompt`。事件须为未被修订取代的已学习 `quality` 评价，有对应更新记录，并指向已验收的纠正任务；`artifact_path` 必须属于该任务记录的成果，当前SHA-256与验收时一致，事件动作证据必须匹配该任务输出。`prompt` 的SHA-256必须等于任务验收检查中的 `training_prompt_sha256`，且 `training_example_approved` 为 `true`。成果文件的UTF-8文本作为目标 completion。两份清单不可重复事件或完全相同的 prompt-completion 对。这样训练目标来自实际验收成果，而不是评价词、道歉文本或未经核对的草稿。使用者应先确认成果确实适合语言模型训练，并处理敏感数据与许可问题。
 

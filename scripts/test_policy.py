@@ -8,12 +8,14 @@ import unittest
 from unittest.mock import patch
 
 from policy import (
-    ACTIONS, MAX_CONTEXT_PREFERENCES, MAX_CONTEXT_TEXT, PARAMETER_COUNT,
+    ACTIONS, FEATURE_SCHEMA_VERSION, INPUT_SIZE, MAX_CONTEXT_PREFERENCES,
+    MAX_CONTEXT_TEXT, PARAMETER_COUNT,
     add_feedback, add_preference, apply_step, attraction_gradient,
     complete, default_state_path, flatten, forward, fresh_state, initial, learn,
     link_target, pair_gradient, pre_generation_context, prepare, report,
     refresh_context_cache, register_identity, save, set_preference_status,
     session_command, state_lock, task_features, validate_fact_correction_evidence, verify,
+    load,
     replay, read_context_snapshot, snapshot_path_for,
     run_batch,
 )
@@ -270,11 +272,11 @@ class PolicyTests(unittest.TestCase):
             numerical = (loss_function(plus)[0] - loss_function(minus)[0]) / (2*epsilon)
             self.assertAlmostEqual(value_at(gradient, key, i, j), numerical, places=7)
 
-    def test_all_620_attraction_gradients(self):
+    def test_all_controller_attraction_gradients(self):
         self.assert_gradient(lambda p: attraction_gradient(
             p, self.x, ["edit_content", "deliver_artifact"], .8))
 
-    def test_all_620_pairwise_gradients(self):
+    def test_all_controller_pairwise_gradients(self):
         self.assert_gradient(lambda p: pair_gradient(
             p, self.x, ["restructure"], ["edit_content", "validate_requirements"], .7))
 
@@ -288,6 +290,32 @@ class PolicyTests(unittest.TestCase):
         self.assertGreater(metrics["parameter_delta_l2"], 0)
         action = ACTIONS.index("edit_content")
         self.assertGreater(forward(small, self.x)[4][action], forward(params, self.x)[4][action])
+
+    def test_semantic_features_separate_same_kind_tasks(self):
+        left = {"task_kind": "general", "feature_schema_version": FEATURE_SCHEMA_VERSION,
+                "target_spec": "核实引用来源和事实准确性", "required_actions": ["verify_citations"],
+                "flags": {}}
+        right = {**left, "target_spec": "重新计算预算和公式"}
+        x_left, x_right = task_features(left), task_features(right)
+        self.assertEqual(len(x_left), INPUT_SIZE)
+        self.assertNotEqual(x_left, x_right)
+        trained, _ = apply_step(initial(), attraction_gradient(initial(), x_left,
+                                                               ["verify_citations"], .8))
+        self.assertNotEqual(forward(trained, x_left)[4], forward(trained, x_right)[4])
+
+    def test_legacy_620_parameter_state_migrates_without_changing_old_features(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "legacy.json"
+            state = fresh_state()
+            state.pop("feature_schema_version")
+            state["params"]["w1"] = [row[:8] for row in state["params"]["w1"]]
+            path.write_text(json.dumps(state), encoding="utf-8")
+            restored = load(path)
+            self.assertEqual(len(restored["params"]["w1"][0]), INPUT_SIZE)
+            self.assertEqual(restored["params"], initial())
+            old_task = {"task_kind": "general", "flags": {},
+                        "target_spec": "核实引用来源和事实准确性"}
+            self.assertEqual(task_features(old_task)[8:], [0.0]*8)
 
     def _files(self, directory, stem):
         artifact = directory / f"{stem}.txt"

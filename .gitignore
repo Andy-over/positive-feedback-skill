@@ -1,5 +1,14 @@
 .positive-feedback/
+training-data/*
+!training-data/.gitignore
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.env
+.env.*
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.bin

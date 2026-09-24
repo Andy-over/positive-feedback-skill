@@ -35,7 +35,8 @@ ACTION_HINTS = {
     "preserve_correct": "保留未要求修改且已正确的内容",
     "deliver_artifact": "交付可打开的实际成果",
 }
-INPUT_SIZE, HIDDEN, OUTPUT_SIZE = 8, 16, len(ACTIONS)
+LEGACY_INPUT_SIZE = 8
+INPUT_SIZE, HIDDEN, OUTPUT_SIZE = 16, 16, len(ACTIONS)
 PARAMETER_COUNT = HIDDEN*INPUT_SIZE + HIDDEN + HIDDEN*HIDDEN + HIDDEN + OUTPUT_SIZE*HIDDEN + OUTPUT_SIZE
 LR, CLIP_NORM = 0.08, 1.0
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +53,15 @@ CONTEXT_CACHE_VERSION = 1
 CONTEXT_SNAPSHOT_VERSION = 1
 SESSION_VERSION = 1
 THREAD_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+FEATURE_SCHEMA_VERSION = 2
+SEMANTIC_PATTERNS = (
+    re.compile(r"代码|脚本|函数|报错|调试|\b(?:code|script|function|bug|debug|api)\b", re.I),
+    re.compile(r"来源|证据|核实|引用|真实|准确|\b(?:source|evidence|citation|verify|fact)\b", re.I),
+    re.compile(r"计算|公式|统计|数值|金额|\b(?:calculate|formula|statistics|number|budget)\b", re.I),
+    re.compile(r"结构|重组|章节|目录|表格|格式|\b(?:structure|outline|table|format)\b", re.I),
+    re.compile(r"错误|纠正|不对|有误|修正|\b(?:wrong|incorrect|correction|fix)\b", re.I),
+    re.compile(r"文件|导出|生成|交付|保存|\b(?:file|export|artifact|deliver|save)\b", re.I),
+)
 
 
 def validate_profile(profile):
@@ -171,7 +181,9 @@ def parse_utc_timestamp(value, field="expires_at"):
 def initial():
     rng = random.Random(31)
     return {
-        "w1": [[rng.uniform(-.08, .08) for _ in range(INPUT_SIZE)] for _ in range(HIDDEN)],
+        # Keep the old 8-D initialization byte-for-byte; new inputs start neutral.
+        "w1": [[rng.uniform(-.08, .08) for _ in range(LEGACY_INPUT_SIZE)]
+               + [0.0]*(INPUT_SIZE-LEGACY_INPUT_SIZE) for _ in range(HIDDEN)],
         "b1": [0.0]*HIDDEN,
         "w2": [[rng.uniform(-.08, .08) for _ in range(HIDDEN)] for _ in range(HIDDEN)],
         "b2": [0.0]*HIDDEN,
@@ -205,12 +217,55 @@ def task_features(task):
     if task["task_kind"] not in TASK_KINDS:
         raise ValueError("invalid task kind")
     flags = task["flags"]
-    return [float(task["task_kind"] == k) for k in TASK_KINDS] + [
+    basic = [float(task["task_kind"] == k) for k in TASK_KINDS] + [
         float(bool(flags.get("artifact_present"))),
         float(bool(flags.get("evidence_required"))),
         float(bool(flags.get("revision_requested"))),
         float(bool(flags.get("output_required"))),
     ]
+    if task.get("feature_schema_version", 1) < FEATURE_SCHEMA_VERSION:
+        return basic + [0.0]*(INPUT_SIZE-LEGACY_INPUT_SIZE)
+    target = task.get("target_spec", "")
+    if not isinstance(target, str):
+        raise ValueError("target_spec must be text")
+    required = task.get("required_actions", [])
+    if not isinstance(required, list):
+        raise ValueError("required_actions must be a list")
+    semantic = [float(bool(pattern.search(target))) for pattern in SEMANTIC_PATTERNS]
+    semantic[4] = max(semantic[4], float(bool(flags.get("factual_correction"))))
+    return basic + semantic + [min(len(target), 400)/400.0,
+                               min(len(required), len(ACTIONS))/len(ACTIONS)]
+
+
+def valid_parameter_shape(params):
+    try:
+        return (set(params) == {"w1", "b1", "w2", "b2", "w3", "b3"}
+                and len(params["w1"]) == HIDDEN
+                and all(len(row) == INPUT_SIZE for row in params["w1"])
+                and len(params["b1"]) == HIDDEN
+                and len(params["w2"]) == HIDDEN
+                and all(len(row) == HIDDEN for row in params["w2"])
+                and len(params["b2"]) == HIDDEN
+                and len(params["w3"]) == OUTPUT_SIZE
+                and all(len(row) == HIDDEN for row in params["w3"])
+                and len(params["b3"]) == OUTPUT_SIZE
+                and len(flatten(params)) == PARAMETER_COUNT
+                and all(math.isfinite(value) for value in flatten(params)))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def migrate_legacy_parameters(params):
+    if (isinstance(params, dict) and len(params.get("w1", [])) == HIDDEN
+            and all(isinstance(row, list) and len(row) == LEGACY_INPUT_SIZE
+                    for row in params["w1"])
+            and len(flatten(params)) == PARAMETER_COUNT - HIDDEN*(INPUT_SIZE-LEGACY_INPUT_SIZE)):
+        migrated = copy.deepcopy(params)
+        migrated["w1"] = [row + [0.0]*(INPUT_SIZE-LEGACY_INPUT_SIZE)
+                          for row in migrated["w1"]]
+        if valid_parameter_shape(migrated):
+            return migrated
+    return params
 
 
 def forward(p, x):
@@ -293,7 +348,8 @@ def apply_step(p, loss_grad):
 
 
 def fresh_state():
-    return {"version": STATE_VERSION, "params": initial(), "tasks": [], "events": [],
+    return {"version": STATE_VERSION, "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            "params": initial(), "tasks": [], "events": [],
             "preferences": [], "updates": [], "context_cache": {}, "batch_history": [],
             "identity": {"profile_id": None, "controller_version": STATE_VERSION,
                          "created_by": None, "created_at": None,
@@ -312,6 +368,8 @@ def load(path):
             event.setdefault("quality_requirement", "")
     if state.get("version") != STATE_VERSION:
         raise ValueError(f"controller state is not v{STATE_VERSION}; use a new state path and keep the old file as archive")
+    state["params"] = migrate_legacy_parameters(state.get("params"))
+    state.setdefault("feature_schema_version", FEATURE_SCHEMA_VERSION)
     state.setdefault("preferences", [])
     state.setdefault("context_cache", {})
     state.setdefault("batch_history", [])
@@ -328,10 +386,8 @@ def load(path):
         raise ValueError("duplicate or missing event_id in controller state")
     if len({p.get("preference_id") for p in state["preferences"]}) != len(state["preferences"]):
         raise ValueError("duplicate or missing preference_id in controller state")
-    if len(flatten(state["params"])) != PARAMETER_COUNT:
-        raise ValueError("invalid parameter count")
-    if not all(math.isfinite(v) for v in flatten(state["params"])):
-        raise ValueError("non-finite controller state")
+    if not valid_parameter_shape(state["params"]):
+        raise ValueError("invalid controller parameter shape or non-finite value")
     return state
 
 
@@ -776,7 +832,7 @@ def refresh_context_cache(state, task_kinds=None):
 def pre_generation_context(state, task_kind, required_actions="", artifact_present=False,
                            evidence_required=False, revision_requested=False,
                            output_required=False, compact=False, factual_correction=False,
-                           snapshot_entry=None):
+                           snapshot_entry=None, target_spec=""):
     required = parse_actions(required_actions) if required_actions else []
     if factual_correction:
         required = list(dict.fromkeys(required + ["inspect_target", "edit_content",
@@ -784,10 +840,13 @@ def pre_generation_context(state, task_kind, required_actions="", artifact_prese
     task = {
         "task_kind": task_kind,
         "required_actions": required,
+        "target_spec": target_spec,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "flags": {"artifact_present": artifact_present,
                   "evidence_required": evidence_required,
                   "revision_requested": revision_requested,
-                  "output_required": output_required},
+                  "output_required": output_required,
+                  "factual_correction": factual_correction},
     }
     features = task_features(task)
     if snapshot_entry is None:
@@ -878,6 +937,7 @@ def prepare(state, task_id, task_kind, required_actions, target_spec, target_sou
                 raise ValueError("task_id reused with different content")
             return public_task(old, scoped_params)
     task = {"task_id": task_id, "task_kind": task_kind,
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "required_actions": required_actions, "target_spec": target_spec,
             "target_source_id": target_source_id,
             "source_message_id": source_message_id, "upstream_task_ref": upstream_task_ref,
@@ -1305,6 +1365,8 @@ def report(state, current_executor="", current_profile=""):
     identity["current_executor"] = current_executor or None
     identity["current_profile"] = current_profile or None
     return {"version": STATE_VERSION, "report_schema_version": 2,
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            "feature_count": INPUT_SIZE,
             "controller_parameter_count": PARAMETER_COUNT,
             "external_parameter_count": PARAMETER_COUNT,
             "deprecated_fields": {"external_parameter_count":
@@ -1401,6 +1463,8 @@ def add_common_task_flags(parser):
 def add_context_arguments(parser):
     parser.add_argument("--task-kind", choices=TASK_KINDS, required=True)
     parser.add_argument("--required-actions", default="")
+    parser.add_argument("--target-spec", default="",
+                        help="concise current goal for opt-in semantic task features")
     parser.add_argument("--compact", action="store_true")
     parser.add_argument("--for-model", action="store_true",
                         help="emit one concise UTF-8 guidance string without duplicate JSON fields")
@@ -1421,6 +1485,8 @@ def main():
                    help="host-provided stable task ID for session activation")
     p.add_argument("--session-state", type=Path,
                    help="explicit external session path, only for isolated tests")
+    p.add_argument("--training-data-dir", type=Path,
+                   help="isolated training-data directory; requires --session-state")
     p.add_argument("--ascii-output", action="store_true",
                    help="use ASCII-escaped JSON for legacy consumers")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1483,11 +1549,15 @@ def main():
     ascii_output = args.pop("ascii_output")
     for_model = args.pop("for_model", False)
     cmd, state_path, profile = args.pop("cmd"), args.pop("state"), args.pop("profile")
+    explicit_state = state_path is not None
     executor_id = args.pop("executor_id")
     thread_id, session_state = args.pop("thread_id"), args.pop("session_state")
+    training_data_dir = args.pop("training_data_dir")
     session_cmd = args.pop("session_cmd", None)
     preference_cmd = args.pop("preference_cmd", None)
     try:
+        if training_data_dir is not None and session_state is None:
+            raise ValueError("--training-data-dir requires isolated --session-state")
         if not ascii_output and hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(encoding="utf-8")
         def emit(result, model_text=False):
@@ -1592,6 +1662,21 @@ def main():
                           and not result.get("state_changed")
                           and state.get("identity", {}) == identity_before):
                     save(state_path, state)
+        real_capture = not explicit_state and bool(profile) and session_state is None
+        isolated_capture = session_state is not None and training_data_dir is not None
+        if cmd in ("verify", "feedback", "batch") and thread_id and (
+                real_capture or isolated_capture):
+            try:
+                from training_mode import capture_policy_event
+                capture = capture_policy_event(cmd, result, state, thread_id,
+                                               session_state, training_data_dir,
+                                               profile or "")
+                if capture is not None:
+                    result["training_capture"] = capture
+            except Exception as exc:
+                # The verified controller transaction already committed; report
+                # capture failure without misrepresenting the primary command.
+                result["training_capture"] = {"status": "error", "reason": str(exc)}
         if cmd == "batch" and args.get("compact"):
             full_result = result
             result = {key: result[key] for key in ("status", "batch_id", "step_count")}

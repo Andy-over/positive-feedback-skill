@@ -12,6 +12,10 @@
 3. **验收门禁**：按 `prepare → complete → verify → feedback → learn` 检查状态。未执行、未验收、来源不明或对象无法归因的事件不能学习；具备全部证据时可用原子 `batch` 减少调用开销。
 4. **后续使用**：只读查询当前任务类型的学习结果，把适用的动作建议交给模型；用户当前要求、事实核查及更高层规则始终优先。
 
+### 可选训练数据模式
+
+用户在已启用 Skill 的任务中明确启用训练模式后，已通过验收的任务和已登记的反馈由 `policy.py` 自动写入 `training-data/<任务ID>/turns.jsonl`。它只保存最小化的任务、动作、核验与反馈摘要，不抓取完整聊天，也不自动训练或修改当前模型。停用 Skill 会停止记录；重新启用 Skill 不会恢复旧训练授权。未走控制器验收流程的普通聊天不会自动记录。训练数据保留在本机，不应上传到仓库或随 Skill 打包。
+
 请求、评价、肯定被分别处理：请求信号拉近所要求的动作；负面评价必须绑定已执行的失败动作与经验证的纠正目标；肯定只强化已验收工作。词语分值是控制信号，不是满意概率或事实正确率。
 
 ## 神经网络与反向传播
@@ -19,10 +23,10 @@
 `scripts/policy.py` 实现一个独立的轻量动作控制网络：
 
 ```text
-8 维任务特征 → 16 个 tanh 单元 → 16 个 tanh 单元 → 12 个动作分数
+16 维任务特征 → 16 个 tanh 单元 → 16 个 tanh 单元 → 12 个动作分数
 ```
 
-8 维输入由 4 类任务的 one-hot 编码及 4 个任务标志组成；12 个输出对应核查、补证据、重新计算、修订、验收、交付等动作。三层全连接网络共有 **620 个可训练参数**。`backprop` 对各层计算梯度，`apply_step` 做梯度裁剪和参数更新；请求与肯定使用目标动作的吸引损失，动作选择错误的评价使用失败动作与目标动作的成对排序损失。经核验的质量纠正可继续强化相同动作，同时保存具体质量要求。参数按实际模型配置档和任务类型隔离，并可从事件记录重放。
+16 维输入由旧版 4 类任务 one-hot、4 个任务标志，以及新增的 6 类目标文本意图、目标长度和必需动作密度组成；12 个输出对应核查、补证据、重新计算、修订、验收、交付等动作。三层全连接网络共有 **748 个可训练参数**。旧版 620 参数状态自动在新增输入列补零，旧任务仍按旧特征解释。`backprop` 对各层计算梯度，`apply_step` 做梯度裁剪和参数更新；请求与肯定使用目标动作的吸引损失，动作选择错误的评价使用失败动作与目标动作的成对排序损失。经核验的质量纠正可继续强化相同动作，同时保存具体质量要求。参数按实际模型配置档和任务类型隔离，并可从事件记录重放。
 
 这是**动作控制器的反向传播**，不是把一次点赞直接反向传播进在线大语言模型。控制器分数只帮助排序可选动作；它不能证明答案真实，也不能覆盖用户的明确要求。
 
@@ -49,12 +53,15 @@ python scripts/gpt_instruct_branch.py test
 python scripts/policy.py session status --compact
 python scripts/test_feedback.py
 python scripts/test_policy.py
+python scripts/test_training_mode.py
+python scripts/test_check_release.py
 python scripts/test_local_train.py
 python scripts/test_gpt_instruct_branch.py
 python scripts/gpt_instruct_branch.py verify
+python scripts/check_release.py --installed 'C:\Users\LENOVO\.codex\skills\positive-feedback'
 ```
 
-真实任务状态写在使用者项目下的 `.positive-feedback/`，不应提交到 Git。当前版本的本地测试覆盖反馈、控制器、本地训练与分支桥接；仓库中的源码和只读分支文件不包含用户的实际反馈记录或模型权重。
+真实任务状态写在使用者项目下的 `.positive-feedback/`，训练模式数据写在 Skill 主文件夹的 `training-data/`；二者都不应提交到 Git。`check_release.py` 在发布前核对已追踪文件、拒绝训练数据和模型权重进入发布包，并可生成仅含已追踪文件的安全包。当前版本的本地测试覆盖反馈、控制器、本地训练、自动记录、发布防护与分支桥接；仓库中的源码和只读分支文件不包含用户的实际反馈记录或模型权重。
 
 ## 适用边界
 
