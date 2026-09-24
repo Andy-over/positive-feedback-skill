@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "repository": "mdx-tom/gpt-instruct",
+  "updated_at": "2026-09-07T04:52:50.847448Z",
+  "logo_url": "data:image/jpeg;base64,/9j/2wCEAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDIBCQkJDAsMGA0NGDIhHCEyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMv/AABEIABYAFgMBIgACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/AMGTMed0bqfcVAS2f3hUITgANyfatCWwuhdRw34Fu7kRs8gBCjjOcemc4rq5/hvcWMd9cPd2kdvHBvEuGOOclVXGFHA5DHPTFclOhQSUlrfzPTxOY4ptw2Xpucbs2swjchScgY7HmjD/APPQ/lUIimzuicAHrk9f/rUeXd/89F/z+FcNWnFTdpL+vke7hq9R0otwe3l/mdDHqEFxp+pf2hEJbyYb45kiVdp4HJ/D0/8ArUrjW9XvNJj0ufUJXtEx8h7gdAe5HsTUKf6ub/rn/Wq6/eruy2lFxldbng5xJ06yUNLf8AakJdTljwSOtO+zH+8fzqSH7rf7x/nUledWXLUlFbJs+mwzc6EJy3aT/A//2Q==",
+  "star_records": [
+    {
+      "date": "2026/7/11 11:41:4",
+      "count": 0
+    },
+    {
+      "date": "2026/7/13 8:52:21",
+      "count": 200
+    },
+    {
+      "date": "2026/7/13 9:13:34",
+      "count": 300
+    },
+    {
+      "date": "2026/7/13 13:27:50",
+      "count": 500
+    },
+    {
+      "date": "2026/7/14 2:28:29",
+      "count": 700
+    },
+    {
+      "date": "2026/7/14 11:11:10",
+      "count": 900
+    },
+    {
+      "date": "2026/7/15 7:18:2",
+      "count": 1100
+    },
+    {
+      "date": "2026/7/15 19:51:7",
+      "count": 1300
+    },
+    {
+      "date": "2026/7/16 4:4:9",
+      "count": 1400
+    },
+    {
+      "date": "2026/7/16 16:17:57",
+      "count": 1600
+    },
+    {
+      "date": "2026/7/17 10:41:42",
+      "count": 1800
+    },
+    {
+      "date": "2026/7/18 16:48:16",
+      "count": 2000
+    },
+    {
+      "date": "2026/7/20 6:49:51",
+      "count": 2200
+    },
+    {
+      "date": "2026/7/21 1:11:10",
+      "count": 2300
+    },
+    {
+      "date": "2026/7/22 9:49:18",
+      "count": 2500
+    },
+    {
+      "date": "2026/7/23 13:51:29",
+      "count": 2700
+    },
+    {
+      "date": "2026/7/24 15:0:41",
+      "count": 2841
+    },
+    {
+      "date": "2026/7/25 14:5:40",
+      "count": 2945
+    },
+    {
+      "date": "2026/7/26 14:2:54",
+      "count": 3037
+    },
+    {
+      "date": "2026/7/27 15:18:14",
+      "count": 3219
+    },
+    {
+      "date": "2026/7/28 14:43:40",
+      "count": 3447
+    },
+    {
+      "date": "2026/7/29 14:34:56",
+      "count": 3691
+    },
+    {
+      "date": "2026/7/30 14:37:2",
+      "count": 3894
+    },
+    {
+      "date": "2026/7/31 15:44:23",
+      "count": 4049
+    },
+    {
+      "date": "2026/8/1 14:0:31",
+      "count": 4145
+    },
+    {
+      "date": "2026/8/2 14:2:6",
+      "count": 4257
+    },
+    {
+      "date": "2026/8/3 15:21:4",
+      "count": 4420
+    },
+    {
+      "date": "2026/8/4 14:43:55",
+      "count": 4546
+    },
+    {
+      "date": "2026/8/5 14:39:45",
+      "count": 4684
+    },
+    {
+      "date": "2026/8/6 14:39:6",
+      "count": 4793
+    },
+    {
+      "date": "2026/8/7 13:42:46",
+      "count": 4901
+    },
+    {
+      "date": "2026/8/8 13:16:26",
+      "count": 4976
+    },
+    {
+      "date": "2026/8/9 13:21:38",
+      "count": 5070
+    },
+    {
+      "date": "2026/8/10 13:49:0",
+      "count": 5194
+    },
+    {
+      "date": "2026/8/11 13:47:19",
+      "count": 5291
+    },
+    {
+      "date": "2026/8/12 13:52:36",
+      "count": 5386
+    },
+    {
+      "date": "2026/8/13 13:52:46",
+      "count": 5479
+    },
+    {
+      "date": "2026/8/14 13:48:9",
+      "count": 5569
+    },
+    {
+      "date": "2026/8/15 13:2:15",
+      "count": 5648
+    },
+    {
+      "date": "2026/8/16 13:4:28",
+      "count": 5704
+    },
+    {
+      "date": "2026/8/17 13:10:50",
+      "count": 5786
+    },
+    {
+      "date": "2026/8/18 13:13:3",
+      "count": 5869
+    },
+    {
+      "date": "2026/8/19 13:13:41",
+      "count": 5956
+    },
+    {
+      "date": "2026/8/20 13:15:56",
+      "count": 6098
+    },
+    {
+      "date": "2026/8/21 13:15:7",
+      "count": 6201
+    },
+    {
+      "date": "2026/8/22 13:4:14",
+      "count": 6267
+    },
+    {
+      "date": "2026/8/23 13:5:37",
+      "count": 6346
+    },
+    {
+      "date": "2026/8/24 13:17:42",
+      "count": 6452
+    },
+    {
+      "date": "2026/8/25 13:15:49",
+      "count": 6525
+    },
+    {
+      "date": "2026/8/26 13:27:21",
+      "count": 6601
+    },
+    {
+      "date": "2026/8/27 22:25:15",
+      "count": 6666
+    },
+    {
+      "date": "2026/8/28 22:27:34",
+      "count": 6721
+    },
+    {
+      "date": "2026/8/29 16:46:53",
+      "count": 6766
+    },
+    {
+      "date": "2026/8/30 16:46:55",
+      "count": 6816
+    },
+    {
+      "date": "2026/8/31 19:9:34",
+      "count": 7168
+    },
+    {
+      "date": "2026/9/1 16:44:38",
+      "count": 7256
+    },
+    {
+      "date": "2026/9/2 16:40:37",
+      "count": 7318
+    },
+    {
+      "date": "2026/9/3 16:32:2",
+      "count": 7372
+    },
+    {
+      "date": "2026/9/4 16:27:58",
+      "count": 7425
+    },
+    {
+      "date": "2026/9/5 15:20:0",
+      "count": 7476
+    },
+    {
+      "date": "2026/9/6 15:32:46",
+      "count": 7598
+    },
+    {
+      "date": "2026/9/7 4:52:50",
+      "count": 7666
+    }
+  ]
+}

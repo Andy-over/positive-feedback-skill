@@ -1,0 +1,4 @@
+interface:
+  display_name: "反馈驱动执行调整"
+  short_description: "在回答前应用隔离、可审计的任务动作偏好"
+  default_prompt: "使用 $positive-feedback，在生成回答前读取当前模型配置档的已学习动作偏好，并在实际成果验收后更新外部控制器。"

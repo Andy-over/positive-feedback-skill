@@ -1,0 +1,258 @@
+# Render the official-style Star History charts locally from upstream source, then publish
+# the bilingual README site through Pages without creating chart-update commits.
+name: Deploy README and Star History
+
+# README/image changes deploy immediately; the schedule refreshes star data every 12 hours.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - README.md
+      - README_EN.md
+      - docs/images/**
+      - .github/scripts/build_pages_readme.py
+      - .github/scripts/star_history.py
+      - .github/data/star-history-data.json
+      - .github/workflows/sync-star-history.yml
+  schedule:
+    - cron: "23 */12 * * *"
+  workflow_dispatch:
+
+# Pages deployment and old deployment-record cleanup require these narrowly scoped permissions.
+permissions:
+  contents: read
+  deployments: write
+  pages: write
+  id-token: write
+
+# A newer refresh supersedes an older in-progress render.
+concurrency:
+  group: star-history-pages
+  cancel-in-progress: true
+
+env:
+  STAR_HISTORY_REPOSITORY: mdx-tom/gpt-instruct
+  # Pin the official renderer revision so the guarded local patch is reproducible.
+  STAR_HISTORY_SOURCE_REF: bcddc9d532b10bac7e0187a741288bf9cab17616
+  STAR_HISTORY_SOURCE_DIR: .star-history-upstream
+  STAR_HISTORY_SITE_DIR: .star-history-site
+  STAR_HISTORY_PAGES_URL: https://mdx-tom.github.io/gpt-instruct
+
+jobs:
+  render-and-deploy:
+    name: Build bilingual README site and deploy to Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v7
+
+      # Use the upstream renderer directly instead of the unstable hosted chart endpoint.
+      - name: Check out official Star History source
+        uses: actions/checkout@v7
+        with:
+          repository: star-history/star-history
+          ref: ${{ env.STAR_HISTORY_SOURCE_REF }}
+          path: ${{ env.STAR_HISTORY_SOURCE_DIR }}
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: |
+            .star-history-upstream/pnpm-lock.yaml
+            .star-history-upstream/backend/pnpm-lock.yaml
+
+      - name: Install official renderer dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "${STAR_HISTORY_SOURCE_DIR}" && pnpm install --frozen-lockfile)
+          (cd "${STAR_HISTORY_SOURCE_DIR}/backend" && pnpm install --frozen-lockfile)
+
+      - name: Install README renderer
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir Markdown==3.8.2
+
+      - name: Render charts and build README pages
+        id: render
+        shell: bash
+        env:
+          # One metadata request reads the current total; individual stargazers
+          # and the hosted Star History service are never queried.
+          GITHUB_JOB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GITHUB_JOB_TOKEN}" ]]; then
+            echo "::error::The workflow GITHUB_TOKEN is unavailable."
+            exit 1
+          fi
+
+          data_file="${RUNNER_TEMP}/star-history-data.json"
+          server_log="${RUNNER_TEMP}/star-history-backend.log"
+
+          # Always stop the runner-local backend, including after a guarded
+          # upstream patch or render validation failure.
+          cleanup() {
+            if [[ -n "${server_pid:-}" ]]; then
+              kill "${server_pid}" 2>/dev/null || true
+              wait "${server_pid}" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          # Extend the previously deployed public date/count series with the
+          # current repository total. The committed seed is used on first deploy
+          # or when the project's own Pages cache is temporarily unavailable.
+          python3 .github/scripts/star_history.py refresh-data \
+            --repository "${STAR_HISTORY_REPOSITORY}" \
+            --seed-file .github/data/star-history-data.json \
+            --deployed-url "${STAR_HISTORY_PAGES_URL}/star-history-data.json" \
+            --output "${data_file}" \
+            --token-env GITHUB_JOB_TOKEN
+
+          # Preserve the official JSDOM/XYChart/xkcd/SVGO renderer and only seed
+          # its cache with local data. Guarded replacement fails closed on drift.
+          python3 .github/scripts/star_history.py patch-upstream \
+            --source-dir "${STAR_HISTORY_SOURCE_DIR}"
+
+          (
+            cd "${STAR_HISTORY_SOURCE_DIR}/backend"
+            STAR_HISTORY_DATA_PATH="${data_file}" \
+              pnpm exec tsx main.ts
+          ) >"${server_log}" 2>&1 &
+          server_pid=$!
+
+          # Wait for the runner-local renderer; image generation never routes to a hosted service.
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:8080/healthz >/dev/null; then
+              break
+            fi
+            if ! kill -0 "${server_pid}" 2>/dev/null; then
+              cat "${server_log}" >&2
+              exit 1
+            fi
+            if [[ "${attempt}" == 60 ]]; then
+              cat "${server_log}" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          mkdir -p "${STAR_HISTORY_SITE_DIR}"
+          cp "${data_file}" "${STAR_HISTORY_SITE_DIR}/star-history-data.json"
+          if ! python3 .github/scripts/star_history.py render \
+              --repository "${STAR_HISTORY_REPOSITORY}" \
+              --output-dir "${STAR_HISTORY_SITE_DIR}" \
+              --fallback-base-url "${STAR_HISTORY_PAGES_URL}"; then
+            cat "${server_log}" >&2
+            exit 1
+          fi
+
+          python3 .github/scripts/build_pages_readme.py \
+            --repository "MDX-Tom/gpt-instruct" \
+            --pages-url "${STAR_HISTORY_PAGES_URL}" \
+            --output-dir "${STAR_HISTORY_SITE_DIR}"
+
+          # Skip Pages deployment when the rendered manifest matches the deployed site.
+          current_dir="$(mktemp -d)"
+          changed=true
+          if curl --fail --silent --location \
+              "${STAR_HISTORY_PAGES_URL}/manifest.sha256" \
+              --output "${current_dir}/manifest.sha256" && \
+            cmp --silent \
+              "${STAR_HISTORY_SITE_DIR}/manifest.sha256" \
+              "${current_dir}/manifest.sha256"; then
+            changed=false
+            echo "The deployed Pages site is already current."
+          fi
+          echo "changed=${changed}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure GitHub Pages
+        if: steps.render.outputs.changed == 'true'
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        if: steps.render.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ env.STAR_HISTORY_SITE_DIR }}
+
+      - name: Deploy Pages artifact
+        if: steps.render.outputs.changed == 'true'
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+      # Keep the newest Pages deployment record and remove superseded records from GitHub.
+      - name: Delete old GitHub Pages deployment records
+        if: ${{ success() && steps.render.outcome == 'success' }}
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const environment = "github-pages";
+            const deployments = await github.paginate(
+              github.rest.repos.listDeployments,
+              {
+                owner,
+                repo,
+                environment,
+                per_page: 100,
+              },
+            );
+
+            deployments.sort((left, right) => {
+              const timeDifference = Date.parse(right.created_at) - Date.parse(left.created_at);
+              return timeDifference || right.id - left.id;
+            });
+
+            if (deployments.length <= 1) {
+              core.info(`Keeping the only ${environment} deployment record.`);
+              return;
+            }
+
+            const [currentDeployment, ...oldDeployments] = deployments;
+            core.info(
+              `Keeping deployment ${currentDeployment.id} and deleting ${oldDeployments.length} older record(s).`,
+            );
+
+            for (const oldDeployment of oldDeployments) {
+              const { data: statuses } = await github.rest.repos.listDeploymentStatuses({
+                owner,
+                repo,
+                deployment_id: oldDeployment.id,
+                per_page: 1,
+              });
+
+              if (statuses[0]?.state !== "inactive") {
+                await github.rest.repos.createDeploymentStatus({
+                  owner,
+                  repo,
+                  deployment_id: oldDeployment.id,
+                  state: "inactive",
+                  environment,
+                  auto_inactive: false,
+                  description: `Superseded by deployment ${currentDeployment.id}.`,
+                });
+              }
+
+              await github.rest.repos.deleteDeployment({
+                owner,
+                repo,
+                deployment_id: oldDeployment.id,
+              });
+              core.info(`Deleted deployment ${oldDeployment.id}.`);
+            }

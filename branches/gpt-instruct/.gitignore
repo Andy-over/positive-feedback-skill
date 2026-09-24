@@ -1,0 +1,40 @@
+__pycache__/
+*.pyc
+*.log
+reports/
+tests/
+releases/
+tmp/
+
+# 外部维护者候选仓库：只读评测输入，永不纳入本仓库。
+/gpt-5.6-instruct-darad/
+
+.DS_Store
+**/.DS_Store
+
+codex/
+AGENTS.md
+
+# 明文提示词包含不适合直接发布到 GitHub 的敏感测试文本；仓库仅提交同名 ZIP，
+# 本地保留 Markdown 源文件，修改后运行 `python3 sync-archives.py` 同步压缩包。
+# v5 明文历史版在 historical-versions/ 中提交；v24/v35 源文件保留于
+# reports/prompt_candidates/；v41/v41-skills/v42 明文源移入 historical-versions/
+# 后继续仅保留在本地；根目录 v45 与 astra-v1 的明文源也只在本地保留。
+/gpt-5.6-sol-v45.md
+/gpt-6-astra-v1.md
+/historical-versions/gpt-6-astra-v1-rc1.md
+/historical-versions/gpt-5.6-sol-unrestricted-v42.md
+/historical-versions/gpt-5.6-sol-unrestricted-v41.md
+/historical-versions/gpt-5.6-sol-unrestricted-v41-skills.md
+
+# skill-examples/ 仅属于历史 v41-skills 的本地参考材料，不随当前版本上传。
+/skill-examples/
+
+# 架构图公开发布导出的 WebP；可编辑 Draw.io 源文件只在本地保留。
+*.drawio
+
+# 测试脚本内含敏感 prompt/判定样本；仓库仅提交每个脚本对应的同名 ZIP。
+# 不要忽略 scripts/*.zip；修改本地 Python 源文件后运行 `python3 sync-archives.py`。
+# 提示词能力、bank/runner/scorer 合约测试也属于 scripts；unit-tests/ 仅保留
+# 部署、回滚及其他项目基本功能测试，禁止在其中重复敏感评测夹具。
+/scripts/*.py
