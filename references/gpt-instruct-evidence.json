@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "source_commit": "0ad8ec58e1989f4a058e01ce4e15cf226e8067bf",
+  "source_document": "docs/comparison-tests-en.md",
+  "candidate": "gpt-6-astra-v1.zip",
+  "method": {
+    "model": "gpt-6-astra",
+    "reasoning": "medium",
+    "workers": 1
+  },
+  "published": {
+    "A": {
+      "cases": [3, 4],
+      "turns": [3, 4],
+      "artifacts": [2, 2]
+    },
+    "B": {
+      "cases": [52, 66],
+      "turns": [60, 74],
+      "artifacts": [15, 16],
+      "families": {
+        "execution_completion": {"cases": [7, 8], "turns": [9, 10], "artifacts": [7, 8]},
+        "routing_continuity": {"cases": [11, 12], "turns": [15, 16], "artifacts": [8, 8]},
+        "fiction_feedback": {"cases": [0, 6], "turns": [0, 6]},
+        "progress_visibility": {"cases": [8, 8], "turns": [8, 8]},
+        "biology_research": {"cases": [13, 16], "turns": [13, 16]},
+        "cloud_plaintext_reverse": {"cases": [13, 16], "turns": [15, 18]}
+      }
+    },
+    "C": {"status": "not_run", "required_cases": 120}
+  }
+}

@@ -28,7 +28,7 @@
 
 16 维输入由旧版 4 类任务 one-hot、4 个任务标志，以及新增的 6 类目标文本意图、目标长度和必需动作密度组成；12 个输出对应核查、补证据、重新计算、修订、验收、交付等动作。三层全连接网络共有 **748 个可训练参数**。旧版 620 参数状态自动在新增输入列补零，旧任务仍按旧特征解释。`backprop` 对各层计算梯度，`apply_step` 做梯度裁剪和参数更新；请求与肯定使用目标动作的吸引损失，动作选择错误的评价使用失败动作与目标动作的成对排序损失。经核验的质量纠正可继续强化相同动作，同时保存具体质量要求。参数按实际模型配置档和任务类型隔离，并可从事件记录重放。
 
-这是**动作控制器的反向传播**，不是把一次点赞直接反向传播进在线大语言模型。控制器分数只帮助排序可选动作；它不能证明答案真实，也不能覆盖用户的明确要求。
+这是**动作控制器的反向传播**，不是把一次点赞直接反向传播进在线大语言模型。控制器分数只帮助排序可选动作；它不能证明答案真实，也不能覆盖用户的明确要求。不同聊天默认使用独立控制器记录，只有用户明确链接记录时才共享。
 
 ### 可选的本地语言模型训练
 
@@ -36,14 +36,15 @@
 
 ## gpt-instruct 项目分支
 
-`branches/gpt-instruct/` 保留 [MDX-Tom/gpt-instruct](https://github.com/MDX-Tom/gpt-instruct) 的完整只读快照（提交 `0ad8ec58e1989f4a058e01ce4e15cf226e8067bf`），原始 78 个文件的哈希记录在 `branches/gpt-instruct.manifest.json`。原项目许可证保留在 [`branches/gpt-instruct/LICENSE`](branches/gpt-instruct/LICENSE)。该分支包含原项目源码、历史归档、评测资料和工作流，但**不会因安装本 Skill 自动部署提示词或启用 GitHub Actions**。
+`branches/gpt-instruct/` 保留 [MDX-Tom/gpt-instruct](https://github.com/MDX-Tom/gpt-instruct) 的完整只读快照（提交 `0ad8ec58e1989f4a058e01ce4e15cf226e8067bf`），原始 78 个文件的哈希记录在 `branches/gpt-instruct.manifest.json`。原项目许可证保留在 [`branches/gpt-instruct/LICENSE`](branches/gpt-instruct/LICENSE)。该分支包含原项目源码、历史归档、评测资料和工作流，但**不会因安装本 Skill 自动部署提示词**。本仓库另设不调用模型的 [验证工作流](.github/workflows/skill-validation.yml)；原项目分支内部的 GitHub Actions 不会因安装 Skill 自动运行。
 
 ```powershell
 python scripts/gpt_instruct_branch.py verify
 python scripts/gpt_instruct_branch.py test
+python scripts/gpt_instruct_branch.py evidence
 ```
 
-需要隔离工作副本时，使用 `python scripts/gpt_instruct_branch.py prepare --output OUTPUT_DIR`。更多边界与入口见 [分支说明](references/gpt-instruct-branch.md)。
+`evidence` 只重建公开测试集、检查 runner 的 dry-run 并复核已发表的 A/B/C 门禁，不产生新的模型成绩；当前公开 B 仍为 52/66 cases，C 未运行。需要隔离工作副本时，使用 `python scripts/gpt_instruct_branch.py prepare --output OUTPUT_DIR`。真实部署另有统一 `preview`、`deploy`、`reset` 入口；部署与重置须用户明确要求、指定既有 Codex 目录并加配置变更确认。更多边界与入口见 [分支说明](references/gpt-instruct-branch.md)。
 
 ## 安装与验证
 

@@ -16,6 +16,7 @@ from pathlib import Path
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 PROJECT = SKILL_ROOT / "branches" / "gpt-instruct"
 MANIFEST = SKILL_ROOT / "branches" / "gpt-instruct.manifest.json"
+EVIDENCE = SKILL_ROOT / "references" / "gpt-instruct-evidence.json"
 # Original archives remain untouched. Missing plaintext sources are reconstructed
 # only in prepared workspaces so the upstream archive-sync workflow can run.
 PROMPT_SOURCES = (
@@ -168,6 +169,98 @@ def test() -> int:
         return completed.returncode
 
 
+def evidence() -> dict[str, object]:
+    """Audit published gates and model-free runner readiness; never infer a new score."""
+    verified = verify()
+    data = json.loads(EVIDENCE.read_text(encoding="utf-8"))
+    if data.get("version") != 1 or data.get("source_commit") != verified["commit"]:
+        raise ValueError("evaluation evidence does not match the bundled source")
+    source = (PROJECT / data["source_document"]).read_text(encoding="utf-8")
+    if not all(marker in source for marker in ("52/66", "60/74", "15/16", "C remains unrun")):
+        raise ValueError("published evaluation summary changed")
+    published = data["published"]
+    families = published["B"]["families"]
+    for metric in ("cases", "turns"):
+        totals = [sum(row[metric][index] for row in families.values()) for index in (0, 1)]
+        if totals != published["B"][metric]:
+            raise ValueError(f"published B {metric} totals do not match families")
+    artifacts = [sum(row.get("artifacts", [0, 0])[index] for row in families.values())
+                 for index in (0, 1)]
+    if artifacts != published["B"]["artifacts"]:
+        raise ValueError("published B artifact totals do not match families")
+    if published["C"]["status"] != "not_run":
+        raise ValueError("C status cannot be inferred from the B results")
+    with tempfile.TemporaryDirectory(prefix="gpt-instruct-evidence-") as temporary:
+        staged = Path(temporary) / "project"
+        prepare(staged)
+        for script in ("generate_gpt56_sol_issue_regression_bank.py",
+                       "generate_gpt56_sol_prompt_bank.py"):
+            completed = subprocess.run([sys.executable, str(staged / "scripts" / script)],
+                                       cwd=staged, capture_output=True, text=True,
+                                       encoding="utf-8", check=False)
+            if completed.returncode:
+                raise ValueError(f"bank generation failed: {script}: {completed.stderr}")
+        issue = staged / "tests" / "gpt56_sol_issue_regression_bank.jsonl"
+        prompt = staged / "tests" / "gpt56_sol_prompt_bank.jsonl"
+        counts = {"issue_bank": len(issue.read_text(encoding="utf-8").splitlines()),
+                  "prompt_bank": len(prompt.read_text(encoding="utf-8").splitlines())}
+        if counts != {"issue_bank": 66, "prompt_bank": 360}:
+            raise ValueError("generated bank sizes changed")
+        instruction_file = staged / "gpt-6-astra-v1.md"
+        dry_runs = {}
+        for script in ("run_gpt56_sol_issue_regression.py", "run_gpt56_sol_prompt_bank.py"):
+            completed = subprocess.run([
+                sys.executable, str(staged / "scripts" / script), "--dry-run",
+                "--model", data["method"]["model"], "--reasoning", data["method"]["reasoning"],
+                "--instructions-file", str(instruction_file)], cwd=staged,
+                capture_output=True, text=True, encoding="utf-8", check=False)
+            dry_runs[script] = completed.returncode
+            if completed.returncode:
+                raise ValueError(f"runner dry-run failed: {script}: {completed.stderr}")
+        bank_hashes = {"issue_bank": sha256(issue), "prompt_bank": sha256(prompt)}
+    deficits = [{"family": name, "missing_cases": row["cases"][1] - row["cases"][0]}
+                for name, row in families.items() if row["cases"][0] < row["cases"][1]]
+    deficits.sort(key=lambda row: (-row["missing_cases"], row["family"]))
+    return {"status": "published_B_gate_not_met", "source_commit": verified["commit"],
+            "published": published, "B_case_deficits": deficits,
+            "offline_checks": {"generated_rows": counts, "bank_sha256": bank_hashes,
+                               "runner_dry_run_exit": dry_runs},
+            "new_model_evaluation": "not_run", "model_invocations": 0}
+
+
+def installer_action(action: str, codex_dir: Path, version: str = "",
+                     confirm_live_config: bool = False) -> dict[str, object]:
+    target = codex_dir.expanduser().resolve()
+    if not codex_dir.is_dir() or codex_dir.is_symlink() or target == SKILL_ROOT or SKILL_ROOT in target.parents:
+        raise ValueError("--codex-dir must be an existing real directory outside the skill")
+    if action in ("deploy", "reset") and not confirm_live_config:
+        raise ValueError("live config change requires --confirm-live-config")
+    config = target / "config.toml"
+    if config.is_symlink():
+        raise ValueError("config.toml must not be a symlink for bridge operations")
+    before = sha256(config) if config.is_file() else None
+    with tempfile.TemporaryDirectory(prefix="gpt-instruct-operation-") as temporary:
+        staged = Path(temporary) / "project"
+        prepare(staged)
+        command = [sys.executable, str(staged / "codex-instruct.py")]
+        command += (["--reset"] if action == "reset" else ["--apply", "--version", version])
+        command += ["--codex-dir", str(target)]
+        if action == "preview":
+            command.append("--dry-run")
+        env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+        completed = subprocess.run(command, cwd=staged, env=env, capture_output=True,
+                                   text=True, encoding="utf-8", check=False,
+                                   input="yes\n" if action == "reset" else None)
+    after = sha256(config) if config.is_file() else None
+    if action == "preview" and before != after:
+        raise ValueError("preview unexpectedly changed config.toml")
+    return {"status": "ok" if completed.returncode == 0 else "error",
+            "action": action, "codex_dir": str(target), "version": version,
+            "installer_exit_status": completed.returncode,
+            "installer_stdout": completed.stdout, "installer_stderr": completed.stderr,
+            "config_sha256_before": before, "config_sha256_after": after}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -175,13 +268,33 @@ def main() -> int:
     prepared = commands.add_parser("prepare", help="make a working copy and unpack script archives")
     prepared.add_argument("--output", required=True, type=Path)
     commands.add_parser("test", help="run bundled project unit tests in isolation")
+    commands.add_parser("evidence", help="audit published A/B/C gates and model-free runner readiness")
+    preview = commands.add_parser("preview", help="dry-run instruction deployment without writing config")
+    preview.add_argument("--version", choices=("gpt-5.6-v45", "gpt-6-v1"), required=True)
+    preview.add_argument("--codex-dir", type=Path, required=True)
+    deploy = commands.add_parser("deploy", help="explicitly deploy instructions to an existing Codex directory")
+    deploy.add_argument("--version", choices=("gpt-5.6-v45", "gpt-6-v1"), required=True)
+    deploy.add_argument("--codex-dir", type=Path, required=True)
+    deploy.add_argument("--confirm-live-config", action="store_true")
+    reset = commands.add_parser("reset", help="explicitly remove only the managed instruction setting")
+    reset.add_argument("--codex-dir", type=Path, required=True)
+    reset.add_argument("--confirm-live-config", action="store_true")
     args = parser.parse_args()
     try:
         if args.command == "test":
             return test()
-        result = verify() if args.command == "verify" else prepare(args.output)
+        if args.command == "verify":
+            result = verify()
+        elif args.command == "prepare":
+            result = prepare(args.output)
+        elif args.command == "evidence":
+            result = evidence()
+        else:
+            result = installer_action(args.command, args.codex_dir,
+                                      getattr(args, "version", ""),
+                                      getattr(args, "confirm_live_config", False))
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-        return 0
+        return result.get("installer_exit_status", 0)
     except (OSError, ValueError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
         print(f"branch error: {exc}", file=sys.stderr)
         return 2

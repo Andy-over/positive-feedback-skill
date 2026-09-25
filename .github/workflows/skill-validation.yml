@@ -1,0 +1,45 @@
+name: Validate positive-feedback skill
+
+on:
+  pull_request:
+    paths:
+      - "SKILL.md"
+      - "scripts/**"
+      - "references/**"
+      - "branches/**"
+      - ".github/workflows/skill-validation.yml"
+  push:
+    branches: [main]
+    paths:
+      - "SKILL.md"
+      - "scripts/**"
+      - "references/**"
+      - "branches/**"
+      - ".github/workflows/skill-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify bundled upstream bytes
+        run: python scripts/gpt_instruct_branch.py verify
+      - name: Audit published gates and offline runner readiness
+        run: python scripts/gpt_instruct_branch.py evidence
+      - name: Test bridge and isolated upstream workflows
+        run: |
+          python scripts/test_gpt_instruct_branch.py
+          python scripts/gpt_instruct_branch.py test
+      - name: Reject private release contents
+        run: python scripts/check_release.py --repo .
