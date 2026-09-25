@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from feedback import LABELS_BY_KIND, signed_number, validate
+from chat_record import chat_directory
 
 TASK_KINDS = ["writing", "code", "data", "general"]
 ACTIONS = [
@@ -70,13 +71,10 @@ def validate_profile(profile):
     return profile
 
 
-def default_state_path(profile, cwd=None):
+def default_state_path(profile, cwd=None, thread_id=None):
     profile = validate_profile(profile)
     root = SKILL_ROOT if cwd is None else Path(cwd).resolve()
-    runtime = root / RUNTIME_DIR
-    if runtime.is_symlink() or (runtime / profile).is_symlink():
-        raise ValueError("profile state directory must not be a symlink")
-    return ensure_external_path(runtime / profile / "action-controller.json")
+    return ensure_external_path(chat_directory(profile, thread_id, root) / "action-controller.json")
 
 
 def session_path_for(thread_id):
@@ -1481,7 +1479,7 @@ def main():
     location.add_argument("--state", type=Path,
                           help="explicit external state path, primarily for isolated tests")
     location.add_argument("--profile",
-                          help="stable model/profile ID; stores state under SKILL_ROOT/.positive-feedback/PROFILE")
+                          help="stable model/profile ID; stores state in a chat-specific directory under SKILL_ROOT/.positive-feedback/PROFILE/chats")
     p.add_argument("--executor-id", default="",
                    help="host-provided stable executor ID; omit when unavailable rather than guessing")
     p.add_argument("--thread-id", default=os.environ.get("CODEX_THREAD_ID", ""),
@@ -1598,7 +1596,7 @@ def main():
                 if state_path is None:
                     if not profile:
                         raise ValueError("active session-context requires --profile or isolated --state")
-                    state_path = default_state_path(profile)
+                    state_path = default_state_path(profile, thread_id=thread_id)
                 else:
                     state_path = ensure_external_path(state_path)
                 snapshot = read_context_snapshot(state_path, args["task_kind"])
@@ -1619,7 +1617,7 @@ def main():
         if state_path is None:
             if not profile:
                 raise ValueError("provide --profile for skill-root model storage, or --state for an isolated test")
-            state_path = default_state_path(profile)
+            state_path = default_state_path(profile, thread_id=thread_id)
         else:
             state_path = ensure_external_path(state_path)
         preferences_path = preferences_path_for(state_path)

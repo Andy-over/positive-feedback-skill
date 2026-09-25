@@ -3,9 +3,11 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from chat_record import chat_directory
 
 POSITIVE_LABELS = {
     "很好": 1.0, "十分感谢": 1.0, "特别感谢": 0.9,
@@ -47,14 +49,11 @@ def external_directory(path):
     raise ValueError("feedback data inside the skill directory is allowed only under .positive-feedback/MODEL_PROFILE")
 
 
-def default_directory(profile, cwd=None):
+def default_directory(profile, cwd=None, thread_id=None):
     if not profile or not PROFILE_PATTERN.fullmatch(profile):
         raise ValueError("profile must be 1-64 characters using letters, digits, dot, underscore, or hyphen")
     root = SKILL_ROOT if cwd is None else Path(cwd).resolve()
-    runtime = root / RUNTIME_DIR
-    if runtime.is_symlink() or (runtime / profile).is_symlink():
-        raise ValueError("profile data directory must not be a symlink")
-    return external_directory(runtime / profile / "events")
+    return external_directory(chat_directory(profile, thread_id, root) / "events")
 
 
 def signed_number(value):
@@ -186,7 +185,9 @@ def main():
     location.add_argument("--data-dir", type=Path,
                           help="explicit external ledger path, primarily for isolated tests")
     location.add_argument("--profile",
-                          help="stable model/profile ID; stores data under SKILL_ROOT/.positive-feedback/PROFILE")
+                          help="stable model/profile ID; stores data in a chat-specific directory under SKILL_ROOT/.positive-feedback/PROFILE/chats")
+    p.add_argument("--thread-id", default=os.environ.get("CODEX_THREAD_ID", ""),
+                   help="stable host chat ID; required with --profile")
     sub = p.add_subparsers(dest="command", required=True)
     a = sub.add_parser("add")
     a.add_argument("--response-id", required=True)
@@ -201,13 +202,14 @@ def main():
     r.add_argument("--alpha", type=smoothing, default=0.2)
     args = vars(p.parse_args())
     command, directory, profile = args.pop("command"), args.pop("data_dir"), args.pop("profile")
+    thread_id = args.pop("thread_id")
     try:
         if command == "add" and not args["quote"].strip():
             raise ValueError("add --quote must contain a verified source excerpt")
         if directory is None:
             if not profile:
                 raise ValueError("provide --profile for skill-root model storage, or --data-dir for an isolated test")
-            directory = default_directory(profile)
+            directory = default_directory(profile, thread_id=thread_id)
         else:
             directory = external_directory(directory)
         result = add(directory, **args) if command == "add" else report(directory, **args)

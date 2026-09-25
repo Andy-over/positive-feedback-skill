@@ -87,16 +87,18 @@ class LedgerTests(unittest.TestCase):
             root = Path(raw) / "isolated-skill"
             root.mkdir()
             with patch("feedback.SKILL_ROOT", root):
-                first = default_directory("model-a")
-                second = default_directory("model-b")
+                first = default_directory("model-a", thread_id="chat-a")
+                second = default_directory("model-b", thread_id="chat-a")
                 self.assertNotEqual(first, second)
-                self.assertEqual(first, root / ".positive-feedback" / "model-a" / "events")
+                self.assertEqual(first, root / ".positive-feedback" / "model-a" / "chats" / "chat-chat-a" / "events")
                 self.assertFalse(first.exists())
                 with self.assertRaises(ValueError):
                     external_directory(root / "SKILL.md")
                 for bad in ("", "../escape", "has space"):
                     with self.assertRaises(ValueError):
-                        default_directory(bad)
+                        default_directory(bad, thread_id="chat-a")
+                with self.assertRaises(ValueError):
+                    default_directory("model-a", thread_id="")
 
 
 if __name__ == "__main__":

@@ -61,7 +61,7 @@ python scripts/gpt_instruct_branch.py verify
 python scripts/check_release.py --installed 'C:\Users\LENOVO\.codex\skills\positive-feedback'
 ```
 
-真实任务状态默认写在 Skill 主目录下的 `.positive-feedback/MODEL_PROFILE/`，训练模式数据写在同一主目录的 `training-data/`；二者都不应提交到 Git。切换默认位置不会自动合并或删除过去留在各项目目录的状态。`check_release.py` 在发布前核对已追踪文件、拒绝训练数据、控制器状态和模型权重进入发布包，并可生成仅含已追踪文件的安全包。当前版本的本地测试覆盖反馈、控制器、本地训练、自动记录、发布防护与分支桥接；仓库中的源码和只读分支文件不包含用户的实际反馈记录或模型权重。
+真实任务状态默认写在 Skill 主目录下的 `.positive-feedback/MODEL_PROFILE/chats/chat-<CODEX_THREAD_ID>/`，不同聊天的控制器、反馈和偏好独立。未指定名称时使用稳定聊天 ID；用户可要求单独命名，由 `python scripts/chat_record.py --profile MODEL_PROFILE set-name --name '名称'` 保存名称并迁移该聊天已有目录。训练模式数据仍写在 Skill 主目录的 `training-data/<thread-id>/`；这些数据都不应提交到 Git。切换路径不会自动合并或删除旧项目目录或此前配置档共享文件中的状态。`check_release.py` 在发布前核对已追踪文件、拒绝训练数据、控制器状态和模型权重进入发布包，并可生成仅含已追踪文件的安全包。当前版本的本地测试覆盖反馈、控制器、本地训练、自动记录、发布防护与分支桥接；仓库中的源码和只读分支文件不包含用户的实际反馈记录或模型权重。
 
 ## 适用边界
 

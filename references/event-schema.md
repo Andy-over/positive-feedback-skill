@@ -84,7 +84,7 @@ learned              已进入一次可审计重放更新
 
 ## 4. 存储隔离
 
-真实数据默认写入 skill 主目录的 `.positive-feedback/MODEL_PROFILE/`，不再依赖调用时工作目录。`MODEL_PROFILE` 使用宿主公开的稳定模型或控制器标识，不同模型不得共用，身份未知时不得猜测；同一配置档跨项目共享。控制器任务、事件和参数写入 `action-controller.json`；具体诉求单独写入 `preferences.json`，轻量反馈账本写入 `events/`。CLI 未提供 `--profile` 时拒绝使用隐式默认值；隔离测试可显式传入临时 `--state` 或 `--data-dir`。skill 目录中只有 `.positive-feedback/MODEL_PROFILE/` 可保存这些状态，其他路径仍拒绝。旧项目目录中的历史状态不自动搬迁或合并，需单独核对后迁移。
+真实数据默认写入 skill 主目录的 `.positive-feedback/MODEL_PROFILE/chats/chat-<CODEX_THREAD_ID>/`，不再依赖调用时工作目录。每个聊天有独立子目录：控制器任务、事件和参数写入该目录的 `action-controller.json`；具体诉求写入 `preferences.json`，轻量反馈账本写入 `events/`。`MODEL_PROFILE` 使用宿主公开的稳定模型或控制器标识，不同模型不得共用，身份未知时不得猜测；缺少稳定聊天 ID 时拒绝真实记录。当前聊天跨项目继续使用同一目录，不同聊天不共享控制器权重或历史。用户指定名称时，运行 `python scripts/chat_record.py --profile MODEL_PROFILE set-name --name '名称'`；目录改为 `chat-<CODEX_THREAD_ID>--<名称>`，已有文件原样迁移，名称映射保存在配置档的 `record-names.json`。未指定时默认使用 ID 名称。CLI 未提供 `--profile` 时拒绝使用隐式默认值；隔离测试可显式传入临时 `--state` 或 `--data-dir`。skill 目录中只有 `.positive-feedback/MODEL_PROFILE/` 可保存这些状态，其他路径仍拒绝。旧项目目录及此前配置档共享文件中的历史状态不自动搬迁或合并，需单独核对后迁移。
 
 任务从一个配置档转到另一档时，只在新任务的 `upstream_task_ref` 中记录可核对的旧任务引用，不复制旧事件、更新或参数。提供宿主执行者标识时可用全局 `--executor-id`；报告区分原始创建者、最近执行者和当前查询者。旧 v5 状态可读，缺失身份字段显示为 `null`；下一次写入时增量补充，不猜测历史身份。跨档偏好默认不共享，只有用户明确要求迁移且逐条核对来源和适用范围时，才在新档单独添加。
 

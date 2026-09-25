@@ -815,7 +815,7 @@ class PolicyTests(unittest.TestCase):
         skill = directory / "isolated-skill"
         scripts = skill / "scripts"
         scripts.mkdir(parents=True)
-        for name in ("policy.py", "feedback.py", "training_mode.py"):
+        for name in ("policy.py", "feedback.py", "training_mode.py", "chat_record.py"):
             shutil.copyfile(Path(__file__).with_name(name), scripts / name)
         return skill, scripts / "policy.py"
 
@@ -824,16 +824,20 @@ class PolicyTests(unittest.TestCase):
             root = Path(raw) / "isolated-skill"
             root.mkdir()
             with patch("policy.SKILL_ROOT", root):
-                first = default_state_path("model-a")
-                second = default_state_path("model-b")
-                self.assertEqual(first, root / ".positive-feedback" / "model-a" / "action-controller.json")
+                first = default_state_path("model-a", thread_id="chat-a")
+                second = default_state_path("model-b", thread_id="chat-a")
+                other_chat = default_state_path("model-a", thread_id="chat-b")
+                self.assertEqual(first, root / ".positive-feedback" / "model-a" / "chats" / "chat-chat-a" / "action-controller.json")
                 self.assertNotEqual(first, second)
+                self.assertNotEqual(first, other_chat)
                 self.assertFalse(first.exists())
                 with self.assertRaises(ValueError):
                     ensure_external_path(root / "SKILL.md")
                 for bad in ("", "../escape", "has space"):
                     with self.assertRaises(ValueError):
-                        default_state_path(bad)
+                        default_state_path(bad, thread_id="chat-a")
+                with self.assertRaises(ValueError):
+                    default_state_path("model-a", thread_id="")
 
     def test_cli_uses_profile_scoped_skill_directory_storage(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -844,7 +848,7 @@ class PolicyTests(unittest.TestCase):
             def run(*args):
                 result = subprocess.run(
                     [sys.executable, "-X", "utf8", str(script), "--profile", "model-a", *args],
-                    cwd=directory, env={**os.environ, "CODEX_THREAD_ID": ""},
+                    cwd=directory, env={**os.environ, "CODEX_THREAD_ID": "chat-a"},
                     text=True, capture_output=True, check=True)
                 return json.loads(result.stdout)
 
@@ -857,7 +861,7 @@ class PolicyTests(unittest.TestCase):
                 "--artifact", str(artifact), "--evidence-json", str(evidence))
             run("verify", "--task-id", "t", "--result", "pass",
                 "--checks-json", str(checks))
-            state_path = skill / ".positive-feedback" / "model-a" / "action-controller.json"
+            state_path = skill / ".positive-feedback" / "model-a" / "chats" / "chat-chat-a" / "action-controller.json"
             self.assertTrue(state_path.is_file())
             run("feedback", "--event-id", "positive", "--kind", "positive",
                 "--task-id", "t", "--source-id", "feedback", "--label", "很好",
@@ -866,7 +870,7 @@ class PolicyTests(unittest.TestCase):
             run("preference", "add", "--preference-id", "concise",
                 "--text", "先给结论", "--source-id", "preference-source",
                 "--task-kinds", "writing")
-            preferences_path = skill / ".positive-feedback" / "model-a" / "preferences.json"
+            preferences_path = skill / ".positive-feedback" / "model-a" / "chats" / "chat-chat-a" / "preferences.json"
             self.assertTrue(preferences_path.is_file())
             self.assertNotIn("preferences", json.loads(state_path.read_text(encoding="utf-8")))
             before = state_path.read_bytes()
@@ -888,7 +892,7 @@ class PolicyTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, "-X", "utf8", str(script), "--profile", "model-empty",
                  "context", "--task-kind", "general"],
-                cwd=directory, env={**os.environ, "CODEX_THREAD_ID": ""},
+                cwd=directory, env={**os.environ, "CODEX_THREAD_ID": "chat-empty"},
                 text=True, capture_output=True, check=True)
             payload = json.loads(result.stdout)
             self.assertEqual(payload["preferred_actions"], [])
@@ -903,11 +907,11 @@ class PolicyTests(unittest.TestCase):
                 [sys.executable, "-X", "utf8", str(script), "--profile", "model-pref",
                  "preference", "add", "--preference-id", "p", "--text", "先给结论",
                  "--source-id", "message", "--task-kinds", "writing"],
-                cwd=directory, env={**os.environ, "CODEX_THREAD_ID": ""},
+                cwd=directory, env={**os.environ, "CODEX_THREAD_ID": "chat-pref"},
                 text=True, capture_output=True, check=True)
             runtime = skill / ".positive-feedback" / "model-pref"
-            self.assertTrue((runtime / "preferences.json").is_file())
-            self.assertFalse((runtime / "action-controller.json").exists())
+            self.assertTrue((runtime / "chats" / "chat-chat-pref" / "preferences.json").is_file())
+            self.assertFalse((runtime / "chats" / "chat-chat-pref" / "action-controller.json").exists())
             self.assertFalse((directory / ".positive-feedback").exists())
 
     def test_state_lock_rejects_concurrent_writer(self):
