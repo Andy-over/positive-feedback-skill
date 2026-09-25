@@ -43,7 +43,7 @@ description: Apply explicitly enabled, evidence-gated feedback to verified actio
 
 `learn` 只更新任务动作控制器。独立本地检查点训练使用经核验的质量纠正成果，必须显式选择候选检查点、独立验证样本、输出位置和宿主提供的当前模型身份；缺少其中任一项时不启动。训练脚本另存新的检查点，不覆盖输入或当前运行路径；具体门控与验证见 [本地模型训练](references/local-model-training.md)。此步骤不因普通反馈自动发生。
 
-真实状态默认保存在本 skill 主目录的 `.positive-feedback/MODEL_PROFILE/chats/chat-<CODEX_THREAD_ID>/`，不同聊天的控制器、事件和偏好互相隔离；同一聊天跨项目继续使用同一记录。`MODEL_PROFILE` 使用宿主实际提供的稳定模型或控制器身份，不猜型号、不共用未知默认值；缺少稳定聊天 ID 时不写真实记录。用户明确要求给当前聊天的记录命名时，运行 `python scripts/chat_record.py --profile MODEL_PROFILE set-name --name '名称'`，目录变为 `chat-<CODEX_THREAD_ID>--<名称>`，原记录随目录迁移；未要求命名时保留 ID 默认名，不自行猜标题。过去的项目级或配置档共享状态均保留原位，不自动合并或删除。真实命令必须传 `--profile`；显式 `--state` 留给隔离测试。执行者身份只有宿主提供时才传入。存储细节见 [事件与状态机](references/event-schema.md)。
+真实状态默认保存在本 skill 主目录的 `.positive-feedback/MODEL_PROFILE/chats/chat-<CODEX_THREAD_ID>/`，不同聊天的控制器、事件和偏好默认隔离；同一聊天跨项目继续使用同一记录。`MODEL_PROFILE` 使用宿主实际提供的稳定模型或控制器身份，不猜型号、不共用未知默认值；缺少稳定聊天 ID 时不写真实记录。用户明确要求给当前聊天的记录命名时，运行 `python scripts/chat_record.py --profile MODEL_PROFILE set-name --name '名称'`，目录变为 `chat-<CODEX_THREAD_ID>--<名称>`，原记录随目录迁移；未要求命名时保留 ID 默认名，不自行猜标题。仅在用户明确指定共享时，才在需要接入的聊天运行 `python scripts/chat_record.py --profile MODEL_PROFILE link --to-name '已有记录名'` 或 `link --to-thread-id 原聊天ID`；链接后的聊天读写同一控制器、反馈和偏好文件，不复制或合并记录，接入聊天原有独立目录保留原位。明确要求退出共享时运行 `unlink`，恢复该聊天自己的目录。训练模式数据仍按聊天单独隔离。过去的项目级或配置档共享状态均保留原位，不自动合并或删除。真实命令必须传 `--profile`；显式 `--state` 留给隔离测试。执行者身份只有宿主提供时才传入。存储细节见 [事件与状态机](references/event-schema.md)。
 
 `evidence_required` 要求非空证据JSON，`output_required` 要求至少一个成果文件，二者不能互相替代。正反馈和评价负反馈只能引用已验收任务；评价的 `failed_actions` 必须是原任务真实执行过的动作，并绑定原 `output_id`。请求可以在任务执行前登记。`context` 优先读取带历史文件 SHA-256 校验的派生快照；快照损坏或过期时只读回退完整历史，不把快照当训练权威。
 

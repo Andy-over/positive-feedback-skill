@@ -1,4 +1,4 @@
-"""Keep controller and feedback records isolated by host chat within a model profile."""
+"""Keep chat records separate by default and share only by explicit link."""
 import argparse
 import json
 import os
@@ -64,6 +64,54 @@ def _load_names(directory):
     return record["names"]
 
 
+def _links_path(directory):
+    path = directory / "record-links.json"
+    if path.is_symlink():
+        raise ValueError("record link registry must not be a symlink")
+    return path
+
+
+def _load_links(directory):
+    path = _links_path(directory)
+    if not path.exists():
+        return {}
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(record, dict) or record.get("version") != 1 or not isinstance(record.get("links"), dict):
+        raise ValueError("invalid record link registry")
+    for source, target in record["links"].items():
+        validate_thread(source)
+        validate_thread(target)
+    return record["links"]
+
+
+def _owner(thread, links):
+    seen = set()
+    while thread in links:
+        if thread in seen:
+            raise ValueError("cyclic chat record links")
+        seen.add(thread)
+        thread = links[thread]
+    return thread
+
+
+def _save_links(directory, links):
+    directory.mkdir(parents=True, exist_ok=True)
+    runtime = directory.parent
+    ignore = runtime / ".gitignore"
+    if not ignore.exists():
+        ignore.write_text("*\n", encoding="utf-8")
+    path = _links_path(directory)
+    temporary = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump({"version": 1, "links": links}, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _folder(thread_id, name):
     return f"chat-{thread_id}" + (f"--{name}" if name else "")
 
@@ -71,8 +119,9 @@ def _folder(thread_id, name):
 def chat_directory(profile, thread_id=None, skill_root=None):
     thread = validate_thread(thread_id if thread_id is not None else os.environ.get("CODEX_THREAD_ID", ""))
     directory = profile_directory(profile, skill_root)
-    name = _load_names(directory).get(thread)
-    path = directory / "chats" / _folder(thread, name)
+    owner = _owner(thread, _load_links(directory))
+    name = _load_names(directory).get(owner)
+    path = directory / "chats" / _folder(owner, name)
     if path.is_symlink():
         raise ValueError("chat record directory must not be a symlink")
     return path
@@ -82,7 +131,12 @@ def set_record_name(profile, thread_id, name, skill_root=None):
     thread = validate_thread(thread_id)
     display = validate_name(name)
     directory = profile_directory(profile, skill_root)
+    if thread in _load_links(directory):
+        raise ValueError("a linked chat cannot rename its owner's record")
     names = _load_names(directory)
+    if any(other != thread and value.casefold() == display.casefold()
+           for other, value in names.items()):
+        raise ValueError("record name is already used by another chat")
     old = directory / "chats" / _folder(thread, names.get(thread))
     new = directory / "chats" / _folder(thread, display)
     if old.is_symlink() or new.is_symlink():
@@ -116,6 +170,45 @@ def set_record_name(profile, thread_id, name, skill_root=None):
     return {"status": "named", "name": display, "record_dir": str(new)}
 
 
+def link_record(profile, thread_id, *, to_thread_id=None, to_name=None, skill_root=None):
+    thread = validate_thread(thread_id)
+    if (to_thread_id is None) == (to_name is None):
+        raise ValueError("provide exactly one target chat ID or record name")
+    directory = profile_directory(profile, skill_root)
+    names = _load_names(directory)
+    links = _load_links(directory)
+    if to_name is not None:
+        display = validate_name(to_name)
+        matches = [key for key, value in names.items() if value.casefold() == display.casefold()]
+        if len(matches) != 1:
+            raise ValueError("record name must identify exactly one chat")
+        target = matches[0]
+    else:
+        target = validate_thread(to_thread_id)
+    owner = _owner(target, links)
+    if owner == thread:
+        raise ValueError("cannot link a chat to its own record")
+    record = directory / "chats" / _folder(owner, names.get(owner))
+    if record.is_symlink() or not record.is_dir():
+        raise ValueError("target chat record does not exist")
+    if links.get(thread) == owner:
+        return {"status": "unchanged", "owner_thread_id": owner, "record_dir": str(record)}
+    links[thread] = owner
+    _save_links(directory, links)
+    return {"status": "linked", "owner_thread_id": owner, "record_dir": str(record)}
+
+
+def unlink_record(profile, thread_id, skill_root=None):
+    thread = validate_thread(thread_id)
+    directory = profile_directory(profile, skill_root)
+    links = _load_links(directory)
+    if thread not in links:
+        return {"status": "unchanged", "record_dir": str(chat_directory(profile, thread, skill_root))}
+    del links[thread]
+    _save_links(directory, links)
+    return {"status": "unlinked", "record_dir": str(chat_directory(profile, thread, skill_root))}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", required=True)
@@ -123,14 +216,27 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status")
     sub.add_parser("set-name").add_argument("--name", required=True)
+    link = sub.add_parser("link")
+    target = link.add_mutually_exclusive_group(required=True)
+    target.add_argument("--to-thread-id")
+    target.add_argument("--to-name")
+    sub.add_parser("unlink")
     args = parser.parse_args()
     try:
         if args.command == "status":
             path = chat_directory(args.profile, args.thread_id)
-            result = {"status": "ok", "name": _load_names(profile_directory(args.profile)).get(args.thread_id, ""),
+            directory = profile_directory(args.profile)
+            owner = _owner(validate_thread(args.thread_id), _load_links(directory))
+            result = {"status": "ok", "name": _load_names(directory).get(owner, ""),
+                      "owner_thread_id": owner, "linked": owner != args.thread_id,
                       "record_dir": str(path)}
-        else:
+        elif args.command == "set-name":
             result = set_record_name(args.profile, args.thread_id, args.name)
+        elif args.command == "link":
+            result = link_record(args.profile, args.thread_id,
+                                 to_thread_id=args.to_thread_id, to_name=args.to_name)
+        else:
+            result = unlink_record(args.profile, args.thread_id)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except (ValueError, OSError, TypeError, json.JSONDecodeError) as exc:
         parser.exit(1, f"Error: {exc}\n")

@@ -47,7 +47,7 @@ positive允许用户明确给出[0,1]内数值。evaluation和request允许[-1,0
 
 ## 独立账本统计
 
-`feedback.py` 提供轻量事件账本，用于统计而不执行任务控制器。每个事件带 `kind`，同一 `response_id + kind` 只有一个有效值；纠正追加 `replace=true` 事件并保留历史。`source_id` 在当前聊天账本内唯一，重复相同内容幂等，重复不同内容报错。真实账本使用 `--profile MODEL_PROFILE` 写入 skill 主目录的 `.positive-feedback/MODEL_PROFILE/chats/chat-<CODEX_THREAD_ID>/events/`；若该聊天已单独命名，则 `chat-<CODEX_THREAD_ID>` 后附 `--<名称>`。缺少稳定聊天 ID 不写真实账本；skill 目录中的其他位置仍不得写入反馈状态。
+`feedback.py` 提供轻量事件账本，用于统计而不执行任务控制器。每个事件带 `kind`，同一 `response_id + kind` 只有一个有效值；纠正追加 `replace=true` 事件并保留历史。`source_id` 在当前所用账本内唯一，重复相同内容幂等，重复不同内容报错。真实账本使用 `--profile MODEL_PROFILE` 写入 skill 主目录的 `.positive-feedback/MODEL_PROFILE/chats/chat-<CODEX_THREAD_ID>/events/`；若该聊天已单独命名，则 `chat-<CODEX_THREAD_ID>` 后附 `--<名称>`。明确链接到另一聊天记录时，`feedback.py` 改写目标记录的同一 `events/`，不会复制账本。缺少稳定聊天 ID 不写真实账本；skill 目录中的其他位置仍不得写入反馈状态。
 
 `label` 是映射标签，`quote` 只保存核对过的用户原文片段；新 CLI 记录必须显式提供 `--quote`，不再自动把标签复制成原文。
 
