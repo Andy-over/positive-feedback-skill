@@ -72,10 +72,11 @@ def validate_profile(profile):
 
 def default_state_path(profile, cwd=None):
     profile = validate_profile(profile)
-    root = Path.cwd() if cwd is None else Path(cwd)
-    path = root.resolve() / RUNTIME_DIR / profile / "action-controller.json"
-    ensure_external_path(path)
-    return path
+    root = SKILL_ROOT if cwd is None else Path(cwd).resolve()
+    runtime = root / RUNTIME_DIR
+    if runtime.is_symlink() or (runtime / profile).is_symlink():
+        raise ValueError("profile state directory must not be a symlink")
+    return ensure_external_path(runtime / profile / "action-controller.json")
 
 
 def session_path_for(thread_id):
@@ -141,10 +142,12 @@ def preferences_path_for(state_path):
 def ensure_external_path(path):
     resolved = Path(path).resolve()
     try:
-        resolved.relative_to(SKILL_ROOT)
+        relative = resolved.relative_to(SKILL_ROOT)
     except ValueError:
         return resolved
-    raise ValueError("preference state must not be stored inside the skill directory")
+    if relative.parts and relative.parts[0] == RUNTIME_DIR and len(relative.parts) >= 3:
+        return resolved
+    raise ValueError("state inside the skill directory is allowed only under .positive-feedback/MODEL_PROFILE")
 
 
 def now():
@@ -1478,7 +1481,7 @@ def main():
     location.add_argument("--state", type=Path,
                           help="explicit external state path, primarily for isolated tests")
     location.add_argument("--profile",
-                          help="stable model/profile ID; stores state under CWD/.positive-feedback/PROFILE")
+                          help="stable model/profile ID; stores state under SKILL_ROOT/.positive-feedback/PROFILE")
     p.add_argument("--executor-id", default="",
                    help="host-provided stable executor ID; omit when unavailable rather than guessing")
     p.add_argument("--thread-id", default=os.environ.get("CODEX_THREAD_ID", ""),
@@ -1615,7 +1618,7 @@ def main():
             raise ValueError("feedback --quote must contain a verified source excerpt")
         if state_path is None:
             if not profile:
-                raise ValueError("provide --profile for model-isolated working-directory storage, or --state for an isolated test")
+                raise ValueError("provide --profile for skill-root model storage, or --state for an isolated test")
             state_path = default_state_path(profile)
         else:
             state_path = ensure_external_path(state_path)

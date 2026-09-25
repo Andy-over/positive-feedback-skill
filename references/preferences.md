@@ -11,7 +11,7 @@ priority, expires_at, status, created_at, updated_at, revisions
 ```
 
 - `text` 去除多余空白，最多400字符。
-- `task_kinds` 为空表示当前工作目录内全部任务；非空时只用于列出的任务类型。
+- `task_kinds` 为空表示当前 `MODEL_PROFILE` 内全部任务（可跨项目）；非空时只用于列出的任务类型。
 - `exclude_task_kinds` 明确排除任务类型，不能和包含范围重叠。
 - `priority` 范围0–100，较高者先进入上下文。
 - `expires_at` 使用带时区的ISO 8601时间；到期后自动停止应用，但不删除记录。

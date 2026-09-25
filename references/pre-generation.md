@@ -24,7 +24,7 @@ python $PositiveFeedbackPolicy --profile MODEL_PROFILE context --for-model --tas
 4. 当前用户要求、事实、安全规则和验收标准始终优先。
 5. 继续正常执行任务；需要记录时再进入 `prepare → complete → verify → feedback → learn` 状态机。
 
-保持项目目录为当前工作目录；不要切换到 skill 目录。`context` 是完全只读操作，不获取写锁，不创建 `.positive-feedback` 目录或锁文件。它使用相同任务类型的已学习历史派生参数，与固定初始化控制器比较动作分数，并输出正向动作差值；没有同类型已学习事件时 `preferred_actions` 为空。
+保持项目目录为当前工作目录；不要切换到 skill 目录。`context` 是完全只读操作，不获取写锁，不创建 skill 主目录下的 `.positive-feedback` 或锁文件。它使用相同任务类型的已学习历史派生参数，与固定初始化控制器比较动作分数，并输出正向动作差值；没有同类型已学习事件时 `preferred_actions` 为空。
 
 `--compact` 只返回生成所需的 `instruction_text`、必需和可选动作、适用偏好与质量要求；不带标志时保留完整分数、差值和诊断元数据，默认行为不变。写操作原子生成分类参数快照，读操作用主状态文件 SHA-256 校验后使用；快照缺失、损坏或过期时回退完整状态，并以事件内容摘要验证分类缓存，必要时只在内存重放。偏好始终从独立文件读取。只读命令不写目录、锁或快照；事件修订后旧快照与旧缓存均失效。
 

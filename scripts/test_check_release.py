@@ -27,6 +27,19 @@ class ReleaseTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "add", "-f", "training-data/thread/turns.jsonl"], check=True)
             self.assertFalse(audit(root)["ok"])
 
+    def test_forced_profile_state_is_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            state = root / ".positive-feedback" / "model-a" / "action-controller.json"
+            state.parent.mkdir(parents=True)
+            state.write_text('{"private":true}', encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "-f", ".positive-feedback/model-a/action-controller.json"], check=True)
+            result = audit(root)
+            self.assertFalse(result["ok"])
+            self.assertIn("tracked private path: .positive-feedback/model-a/action-controller.json",
+                          result["issues"])
+
 
 if __name__ == "__main__":
     unittest.main()

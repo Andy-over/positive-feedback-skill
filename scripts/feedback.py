@@ -39,17 +39,22 @@ PROFILE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 def external_directory(path):
     resolved = Path(path).resolve()
     try:
-        resolved.relative_to(SKILL_ROOT)
+        relative = resolved.relative_to(SKILL_ROOT)
     except ValueError:
         return resolved
-    raise ValueError("feedback data must not be stored inside the skill directory")
+    if relative.parts and relative.parts[0] == RUNTIME_DIR and len(relative.parts) >= 3:
+        return resolved
+    raise ValueError("feedback data inside the skill directory is allowed only under .positive-feedback/MODEL_PROFILE")
 
 
 def default_directory(profile, cwd=None):
     if not profile or not PROFILE_PATTERN.fullmatch(profile):
         raise ValueError("profile must be 1-64 characters using letters, digits, dot, underscore, or hyphen")
-    root = Path.cwd() if cwd is None else Path(cwd)
-    return external_directory(root / RUNTIME_DIR / profile / "events")
+    root = SKILL_ROOT if cwd is None else Path(cwd).resolve()
+    runtime = root / RUNTIME_DIR
+    if runtime.is_symlink() or (runtime / profile).is_symlink():
+        raise ValueError("profile data directory must not be a symlink")
+    return external_directory(runtime / profile / "events")
 
 
 def signed_number(value):
@@ -181,7 +186,7 @@ def main():
     location.add_argument("--data-dir", type=Path,
                           help="explicit external ledger path, primarily for isolated tests")
     location.add_argument("--profile",
-                          help="stable model/profile ID; stores data under CWD/.positive-feedback/PROFILE")
+                          help="stable model/profile ID; stores data under SKILL_ROOT/.positive-feedback/PROFILE")
     sub = p.add_subparsers(dest="command", required=True)
     a = sub.add_parser("add")
     a.add_argument("--response-id", required=True)
@@ -201,7 +206,7 @@ def main():
             raise ValueError("add --quote must contain a verified source excerpt")
         if directory is None:
             if not profile:
-                raise ValueError("provide --profile for model-isolated working-directory storage, or --data-dir for an isolated test")
+                raise ValueError("provide --profile for skill-root model storage, or --data-dir for an isolated test")
             directory = default_directory(profile)
         else:
             directory = external_directory(directory)

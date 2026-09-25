@@ -84,7 +84,7 @@ learned              已进入一次可审计重放更新
 
 ## 4. 存储隔离
 
-真实数据只写入调用时工作目录的 `.positive-feedback/MODEL_PROFILE/`。`MODEL_PROFILE` 使用宿主公开的稳定模型或控制器标识，不同模型不得共用，身份未知时不得猜测。控制器任务、事件和参数写入 `action-controller.json`；具体诉求单独写入 `preferences.json`。CLI 未提供 `--profile` 时拒绝使用隐式默认值；隔离测试可以显式传入工作目录之外的临时 `--state` 或 `--data-dir`。skill 安装目录内的状态路径一律拒绝。
+真实数据默认写入 skill 主目录的 `.positive-feedback/MODEL_PROFILE/`，不再依赖调用时工作目录。`MODEL_PROFILE` 使用宿主公开的稳定模型或控制器标识，不同模型不得共用，身份未知时不得猜测；同一配置档跨项目共享。控制器任务、事件和参数写入 `action-controller.json`；具体诉求单独写入 `preferences.json`，轻量反馈账本写入 `events/`。CLI 未提供 `--profile` 时拒绝使用隐式默认值；隔离测试可显式传入临时 `--state` 或 `--data-dir`。skill 目录中只有 `.positive-feedback/MODEL_PROFILE/` 可保存这些状态，其他路径仍拒绝。旧项目目录中的历史状态不自动搬迁或合并，需单独核对后迁移。
 
 任务从一个配置档转到另一档时，只在新任务的 `upstream_task_ref` 中记录可核对的旧任务引用，不复制旧事件、更新或参数。提供宿主执行者标识时可用全局 `--executor-id`；报告区分原始创建者、最近执行者和当前查询者。旧 v5 状态可读，缺失身份字段显示为 `null`；下一次写入时增量补充，不猜测历史身份。跨档偏好默认不共享，只有用户明确要求迁移且逐条核对来源和适用范围时，才在新档单独添加。
 

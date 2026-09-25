@@ -1,9 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from feedback import (
     EVALUATION_LABELS, POSITIVE_LABELS, REQUEST_LABELS, add, default_directory,
+    external_directory,
     number, report, signed_number,
 )
 
@@ -80,16 +82,21 @@ class LedgerTests(unittest.TestCase):
             self.assertEqual(result["effective_events"], 0)
             self.assertIsNone(result["by_kind"]["positive"]["mean"])
 
-    def test_default_directory_is_working_directory_and_profile_scoped(self):
+    def test_default_directory_is_skill_directory_and_profile_scoped(self):
         with tempfile.TemporaryDirectory() as raw:
-            first = default_directory("model-a", raw)
-            second = default_directory("model-b", raw)
-            self.assertNotEqual(first, second)
-            self.assertEqual(first.name, "events")
-            self.assertEqual(first.parent.name, "model-a")
-            for bad in ("", "../escape", "has space"):
+            root = Path(raw) / "isolated-skill"
+            root.mkdir()
+            with patch("feedback.SKILL_ROOT", root):
+                first = default_directory("model-a")
+                second = default_directory("model-b")
+                self.assertNotEqual(first, second)
+                self.assertEqual(first, root / ".positive-feedback" / "model-a" / "events")
+                self.assertFalse(first.exists())
                 with self.assertRaises(ValueError):
-                    default_directory(bad, raw)
+                    external_directory(root / "SKILL.md")
+                for bad in ("", "../escape", "has space"):
+                    with self.assertRaises(ValueError):
+                        default_directory(bad)
 
 
 if __name__ == "__main__":

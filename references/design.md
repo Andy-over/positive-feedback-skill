@@ -47,7 +47,7 @@ positive允许用户明确给出[0,1]内数值。evaluation和request允许[-1,0
 
 ## 独立账本统计
 
-`feedback.py` 提供轻量事件账本，用于统计而不执行任务控制器。每个事件带 `kind`，同一 `response_id + kind` 只有一个有效值；纠正追加 `replace=true` 事件并保留历史。`source_id` 全局唯一，重复相同内容幂等，重复不同内容报错。真实账本使用 `--profile MODEL_PROFILE` 写入当前工作目录的 `.positive-feedback/MODEL_PROFILE/events/`，不得写入 skill 安装目录。
+`feedback.py` 提供轻量事件账本，用于统计而不执行任务控制器。每个事件带 `kind`，同一 `response_id + kind` 只有一个有效值；纠正追加 `replace=true` 事件并保留历史。`source_id` 全局唯一，重复相同内容幂等，重复不同内容报错。真实账本使用 `--profile MODEL_PROFILE` 写入 skill 主目录的 `.positive-feedback/MODEL_PROFILE/events/`；skill 目录中的其他位置仍不得写入反馈状态。
 
 `label` 是映射标签，`quote` 只保存核对过的用户原文片段；新 CLI 记录必须显式提供 `--quote`，不再自动把标签复制成原文。
 

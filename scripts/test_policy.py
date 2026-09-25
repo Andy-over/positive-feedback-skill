@@ -1,6 +1,8 @@
 import copy
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,7 +13,7 @@ from policy import (
     ACTIONS, FEATURE_SCHEMA_VERSION, INPUT_SIZE, MAX_CONTEXT_PREFERENCES,
     MAX_CONTEXT_TEXT, PARAMETER_COUNT,
     add_feedback, add_preference, apply_step, attraction_gradient,
-    complete, default_state_path, flatten, forward, fresh_state, initial, learn,
+    complete, default_state_path, ensure_external_path, flatten, forward, fresh_state, initial, learn,
     link_target, pair_gradient, pre_generation_context, prepare, report,
     refresh_context_cache, register_identity, save, set_preference_status,
     session_command, state_lock, task_features, validate_fact_correction_evidence, verify,
@@ -809,26 +811,41 @@ class PolicyTests(unittest.TestCase):
             state["events"][0]["status"] = "awaiting_execution"
             self.assertEqual(report(state)["events"][0]["status"], "ready")
 
-    def test_default_state_path_is_working_directory_and_profile_scoped(self):
-        with tempfile.TemporaryDirectory() as raw:
-            first = default_state_path("model-a", raw)
-            second = default_state_path("model-b", raw)
-            self.assertEqual(first, Path(raw).resolve() / ".positive-feedback" / "model-a" / "action-controller.json")
-            self.assertNotEqual(first, second)
-            for bad in ("", "../escape", "has space"):
-                with self.assertRaises(ValueError):
-                    default_state_path(bad, raw)
+    def _isolated_skill_cli(self, directory):
+        skill = directory / "isolated-skill"
+        scripts = skill / "scripts"
+        scripts.mkdir(parents=True)
+        for name in ("policy.py", "feedback.py", "training_mode.py"):
+            shutil.copyfile(Path(__file__).with_name(name), scripts / name)
+        return skill, scripts / "policy.py"
 
-    def test_cli_uses_profile_scoped_working_directory_storage(self):
+    def test_default_state_path_is_skill_directory_and_profile_scoped(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "isolated-skill"
+            root.mkdir()
+            with patch("policy.SKILL_ROOT", root):
+                first = default_state_path("model-a")
+                second = default_state_path("model-b")
+                self.assertEqual(first, root / ".positive-feedback" / "model-a" / "action-controller.json")
+                self.assertNotEqual(first, second)
+                self.assertFalse(first.exists())
+                with self.assertRaises(ValueError):
+                    ensure_external_path(root / "SKILL.md")
+                for bad in ("", "../escape", "has space"):
+                    with self.assertRaises(ValueError):
+                        default_state_path(bad)
+
+    def test_cli_uses_profile_scoped_skill_directory_storage(self):
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
             artifact, evidence, checks = self._files(directory, "cli")
-            script = Path(__file__).with_name("policy.py")
+            skill, script = self._isolated_skill_cli(directory)
 
             def run(*args):
                 result = subprocess.run(
                     [sys.executable, "-X", "utf8", str(script), "--profile", "model-a", *args],
-                    cwd=directory, text=True, capture_output=True, check=True)
+                    cwd=directory, env={**os.environ, "CODEX_THREAD_ID": ""},
+                    text=True, capture_output=True, check=True)
                 return json.loads(result.stdout)
 
             run("prepare", "--task-id", "t", "--task-kind", "writing",
@@ -840,7 +857,7 @@ class PolicyTests(unittest.TestCase):
                 "--artifact", str(artifact), "--evidence-json", str(evidence))
             run("verify", "--task-id", "t", "--result", "pass",
                 "--checks-json", str(checks))
-            state_path = directory / ".positive-feedback" / "model-a" / "action-controller.json"
+            state_path = skill / ".positive-feedback" / "model-a" / "action-controller.json"
             self.assertTrue(state_path.is_file())
             run("feedback", "--event-id", "positive", "--kind", "positive",
                 "--task-id", "t", "--source-id", "feedback", "--label", "很好",
@@ -849,7 +866,7 @@ class PolicyTests(unittest.TestCase):
             run("preference", "add", "--preference-id", "concise",
                 "--text", "先给结论", "--source-id", "preference-source",
                 "--task-kinds", "writing")
-            preferences_path = directory / ".positive-feedback" / "model-a" / "preferences.json"
+            preferences_path = skill / ".positive-feedback" / "model-a" / "preferences.json"
             self.assertTrue(preferences_path.is_file())
             self.assertNotIn("preferences", json.loads(state_path.read_text(encoding="utf-8")))
             before = state_path.read_bytes()
@@ -860,33 +877,38 @@ class PolicyTests(unittest.TestCase):
             self.assertIn("edit_content", context["preferred_actions"])
             self.assertEqual(context["explicit_preferences"][0]["text"], "先给结论")
             self.assertEqual(before, state_path.read_bytes())
-            self.assertTrue((directory / ".positive-feedback" / ".gitignore").is_file())
-            self.assertFalse((directory / ".positive-feedback" / "model-b" / "action-controller.json").exists())
+            self.assertTrue((skill / ".positive-feedback" / ".gitignore").is_file())
+            self.assertFalse((directory / ".positive-feedback").exists())
+            self.assertFalse((skill / ".positive-feedback" / "model-b" / "action-controller.json").exists())
 
     def test_cli_context_without_state_creates_no_runtime_directory(self):
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
-            script = Path(__file__).with_name("policy.py")
+            skill, script = self._isolated_skill_cli(directory)
             result = subprocess.run(
                 [sys.executable, "-X", "utf8", str(script), "--profile", "model-empty",
                  "context", "--task-kind", "general"],
-                cwd=directory, text=True, capture_output=True, check=True)
+                cwd=directory, env={**os.environ, "CODEX_THREAD_ID": ""},
+                text=True, capture_output=True, check=True)
             payload = json.loads(result.stdout)
             self.assertEqual(payload["preferred_actions"], [])
+            self.assertFalse((skill / ".positive-feedback").exists())
             self.assertFalse((directory / ".positive-feedback").exists())
 
     def test_cli_preference_file_is_independent_from_controller_state(self):
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
-            script = Path(__file__).with_name("policy.py")
+            skill, script = self._isolated_skill_cli(directory)
             subprocess.run(
                 [sys.executable, "-X", "utf8", str(script), "--profile", "model-pref",
                  "preference", "add", "--preference-id", "p", "--text", "先给结论",
                  "--source-id", "message", "--task-kinds", "writing"],
-                cwd=directory, text=True, capture_output=True, check=True)
-            runtime = directory / ".positive-feedback" / "model-pref"
+                cwd=directory, env={**os.environ, "CODEX_THREAD_ID": ""},
+                text=True, capture_output=True, check=True)
+            runtime = skill / ".positive-feedback" / "model-pref"
             self.assertTrue((runtime / "preferences.json").is_file())
             self.assertFalse((runtime / "action-controller.json").exists())
+            self.assertFalse((directory / ".positive-feedback").exists())
 
     def test_state_lock_rejects_concurrent_writer(self):
         with tempfile.TemporaryDirectory() as raw:

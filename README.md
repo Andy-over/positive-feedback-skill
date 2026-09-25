@@ -61,7 +61,7 @@ python scripts/gpt_instruct_branch.py verify
 python scripts/check_release.py --installed 'C:\Users\LENOVO\.codex\skills\positive-feedback'
 ```
 
-真实任务状态写在使用者项目下的 `.positive-feedback/`，训练模式数据写在 Skill 主文件夹的 `training-data/`；二者都不应提交到 Git。`check_release.py` 在发布前核对已追踪文件、拒绝训练数据和模型权重进入发布包，并可生成仅含已追踪文件的安全包。当前版本的本地测试覆盖反馈、控制器、本地训练、自动记录、发布防护与分支桥接；仓库中的源码和只读分支文件不包含用户的实际反馈记录或模型权重。
+真实任务状态默认写在 Skill 主目录下的 `.positive-feedback/MODEL_PROFILE/`，训练模式数据写在同一主目录的 `training-data/`；二者都不应提交到 Git。切换默认位置不会自动合并或删除过去留在各项目目录的状态。`check_release.py` 在发布前核对已追踪文件、拒绝训练数据、控制器状态和模型权重进入发布包，并可生成仅含已追踪文件的安全包。当前版本的本地测试覆盖反馈、控制器、本地训练、自动记录、发布防护与分支桥接；仓库中的源码和只读分支文件不包含用户的实际反馈记录或模型权重。
 
 ## 适用边界
 
