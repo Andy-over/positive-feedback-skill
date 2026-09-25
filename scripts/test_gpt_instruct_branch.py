@@ -1,5 +1,7 @@
 from __future__ import annotations
 import importlib.util
+import os
+from unittest.mock import patch
 import subprocess
 import sys
 import tempfile
@@ -81,6 +83,7 @@ class BranchTests(unittest.TestCase):
         self.assertEqual(result["model_invocations"], 0)
         self.assertEqual(result["offline_checks"]["generated_rows"],
                          {"issue_bank": 66, "prompt_bank": 360})
+        self.assertEqual(result["offline_checks"]["source_context_required"], ["route.en.06"])
         self.assertEqual(result["B_case_deficits"][0],
                          {"family": "fiction_feedback", "missing_cases": 6})
 
@@ -118,6 +121,34 @@ class BranchTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("--confirm-live-config", result.stderr)
             self.assertEqual(list(codex.iterdir()), [])
+
+    @unittest.skipUnless(os.name == "nt", "Windows-only native-sandbox compatibility")
+    def test_opt_in_windows_evaluator_copy_runs_self_test(self) -> None:
+        source_hash = branch.sha256(branch.PROJECT / "scripts/run_gpt56_sol_issue_regression.zip")
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "project"
+            result = branch.prepare(output, windows_eval_compat=True)
+            self.assertIn("applied", result["windows_eval_compat"])
+            runner = output / "scripts/run_gpt56_sol_issue_regression.py"
+            isolation = output / "scripts/codex_test_isolation.py"
+            self.assertIn("acl_compatible_temporary_directory", runner.read_text(encoding="utf-8"))
+            self.assertIn("CodexSandboxUsers", isolation.read_text(encoding="utf-8"))
+            run = subprocess.run([sys.executable, str(runner), "--self-test"],
+                                 cwd=output, capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("self-test: pass", run.stdout)
+        self.assertEqual(branch.sha256(branch.PROJECT / "scripts/run_gpt56_sol_issue_regression.zip"), source_hash)
+
+    @unittest.skipUnless(os.name == "nt", "Windows-only checkout newline compatibility")
+    def test_windows_evaluator_patch_accepts_crlf_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            patch_file = Path(td) / "windows-eval-crlf.patch"
+            patch_file.write_bytes(branch.WINDOWS_EVAL_PATCH.read_bytes().replace(b"\n", b"\r\n"))
+            with patch.object(branch, "WINDOWS_EVAL_PATCH", patch_file):
+                output = Path(td) / "project"
+                result = branch.prepare(output, windows_eval_compat=True)
+            self.assertIn("applied", result["windows_eval_compat"])
+            self.assertFalse((output / ".gpt-instruct-eval-compat.patch").exists())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,223 @@
+--- a/scripts/codex_test_isolation.py
++++ b/scripts/codex_test_isolation.py
+@@ -8,6 +8,7 @@
+ import subprocess
+ import sys
+ import tempfile
++import uuid
+ from contextlib import contextmanager
+ from pathlib import Path
+ from typing import Iterator
+@@ -20,6 +21,26 @@
+     "models_cache.json",
+     "manager-models.json",
+ )
++
++
++@contextmanager
++def acl_compatible_temporary_directory(prefix: str) -> Iterator[str]:
++    """Use an inherited Windows ACL so nested Codex can enter its test workspace."""
++    if os.name != "nt":
++        with tempfile.TemporaryDirectory(prefix=prefix) as temporary:
++            yield temporary
++        return
++    base = Path(os.environ.get("GPT_INSTRUCT_EVAL_ROOT") or tempfile.gettempdir()).resolve()
++    if not base.is_dir() or base.is_symlink():
++        raise RuntimeError("evaluation root must be an existing real directory")
++    temporary = (base / f"{prefix}{uuid.uuid4().hex}").resolve()
++    if not temporary.is_relative_to(base):
++        raise RuntimeError("evaluation directory escaped its root")
++    temporary.mkdir()
++    try:
++        yield str(temporary)
++    finally:
++        shutil.rmtree(temporary)
+ 
+ def active_codex_home() -> Path:
+     configured = os.environ.get("CODEX_HOME")
+@@ -41,7 +62,7 @@
+     source_config = source / "config.toml"
+     if not source_config.is_file():
+         raise RuntimeError(f"missing source Codex config: {source_config}")
+-    with tempfile.TemporaryDirectory(prefix="codex-test-home-") as temporary:
++    with acl_compatible_temporary_directory(prefix="codex-test-home-") as temporary:
+         temporary_root = Path(temporary)
+         isolated_home = temporary_root / "home"
+         isolated = isolated_home / ".codex"
+@@ -65,6 +86,26 @@
+                 continue
+             copied_lines.append("notify = []" if line.startswith("notify = ") else line)
+         copied_config.write_text("\n".join(copied_lines) + "\n", encoding="utf-8")
++        if os.name == "nt":
++            # Keep only the non-secret native sandbox setting in the fixture.
++            copied_config.write_text(
++                'approval_policy = "never"\n[windows]\nsandbox = "elevated"\n',
++                encoding="utf-8",
++            )
++            auth = isolated / "auth.json"
++            if not auth.is_file():
++                raise RuntimeError("isolated model evaluation requires copied auth")
++            account = subprocess.run(
++                ["whoami"], capture_output=True, text=True, check=True,
++                encoding="utf-8", errors="replace",
++            ).stdout.strip()
++            for command in (
++                ["icacls", str(auth), "/inheritance:r", "/grant:r", f"{account}:(F)", "SYSTEM:(F)", "*S-1-5-32-544:(F)"],
++                ["icacls", str(auth), "/deny", "CodexSandboxUsers:(R)"],
++            ):
++                result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
++                if result.returncode:
++                    raise RuntimeError("could not protect isolated auth file")
+ 
+         xdg_config = isolated_home / ".config"
+         xdg_cache = isolated_home / ".cache"
+@@ -91,8 +132,11 @@
+         env = os.environ.copy()
+         env["HOME"] = str(isolated_home)
+         env["CODEX_HOME"] = str(isolated)
++        env["USERPROFILE"] = str(isolated_home)
+         env["XDG_CONFIG_HOME"] = str(xdg_config)
+         env["XDG_CACHE_HOME"] = str(xdg_cache)
+         env["XDG_DATA_HOME"] = str(xdg_data)
+         env["TMPDIR"] = str(temp_dir)
++        env["TEMP"] = str(temp_dir)
++        env["TMP"] = str(temp_dir)
+         yield env
+--- a/scripts/run_gpt56_sol_issue_regression.py
++++ b/scripts/run_gpt56_sol_issue_regression.py
+@@ -29,10 +29,15 @@
+ from pathlib import Path
+ from typing import Iterable
+ 
+-from codex_test_isolation import isolated_codex_environment
++from codex_test_isolation import acl_compatible_temporary_directory, isolated_codex_environment
+ 
+ 
+ ROOT = Path(__file__).resolve().parents[1]
++SH_BIN = str(Path(shutil.which("git") or "").resolve().parent.parent / "bin" / "sh.exe") if sys.platform == "win32" else "/bin/sh"
++PATCH_BIN = (
++    str(Path(shutil.which("git") or "").resolve().parent.parent / "usr" / "bin" / "patch.exe")
++    if sys.platform == "win32" else "/usr/bin/patch"
++)
+ DEFAULT_BANK = ROOT / "tests" / "gpt56_sol_issue_regression_bank.jsonl"
+ DEFAULT_OUTPUT = ROOT / "tests" / "runs"
+ DEFAULT_INSTRUCTIONS = ROOT / "gpt-5.6-sol-unrestricted-v42.md"
+@@ -500,11 +505,11 @@
+     patched_exit: int,
+ ) -> dict[str, object]:
+     """Apply the declared patch and bind its bytes and behavior to the modified role."""
+-    with tempfile.TemporaryDirectory(prefix="gpt56-patch-reconstruct-") as tmp:
++    with acl_compatible_temporary_directory(prefix="gpt56-patch-reconstruct-") as tmp:
+         reconstructed = Path(tmp) / patched.name
+         proc = subprocess.run(
+             [
+-                "/usr/bin/patch",
++                PATCH_BIN,
+                 "-s",
+                 "-o",
+                 str(reconstructed),
+@@ -517,6 +522,14 @@
+             timeout=15,
+             check=False,
+         )
++        # Git-for-Windows patch.exe may translate LF to CRLF. Accept only the
++        # exact modified-role bytes after undoing that transport conversion.
++        if sys.platform == "win32" and proc.returncode == 0 and reconstructed.is_file():
++            data = reconstructed.read_bytes()
++            normalized = data.replace(b"\r\n", b"\n")
++            target = patched.read_bytes()
++            if data != target and normalized == target.replace(b"\r\n", b"\n"):
++                reconstructed.write_bytes(target)
+         run = (
+             _run_fixture_command(
+                 [sys.executable, str(reconstructed), test_value],
+@@ -538,7 +551,7 @@
+         return {
+             "passed": passed,
+             "patch_command": [
+-                "/usr/bin/patch", "-s", "-o", "<reconstructed>",
++                PATCH_BIN, "-s", "-o", "<reconstructed>",
+                 str(original.relative_to(workspace)),
+                 str(patch_file.relative_to(workspace)),
+             ],
+@@ -599,7 +612,7 @@
+     ]
+     attempts: list[dict[str, object]] = []
+     for label, arguments in strategies:
+-        with tempfile.TemporaryDirectory(prefix="gpt56-rollback-exec-") as tmp:
++        with acl_compatible_temporary_directory(prefix="gpt56-rollback-exec-") as tmp:
+             clone = Path(tmp) / "workspace"
+             shutil.copytree(workspace, clone)
+             clone_original = clone / relative_original
+@@ -614,7 +627,7 @@
+             }
+             clone_rollback = clone / relative_rollback
+             command = (
+-                ["/bin/sh", str(clone_rollback), *arguments]
++                [SH_BIN, str(clone_rollback), *arguments]
+                 if clone_rollback.suffix.casefold() == ".sh"
+                 else [sys.executable, str(clone_rollback), *arguments]
+             )
+@@ -659,7 +672,7 @@
+             attempt = {
+                 "strategy": label,
+                 "command": (
+-                    ["/bin/sh", str(relative_rollback), *arguments]
++                    [SH_BIN, str(relative_rollback), *arguments]
+                     if relative_rollback.suffix.casefold() == ".sh"
+                     else [sys.executable, str(relative_rollback), *arguments]
+                 ),
+@@ -865,7 +878,7 @@
+         for candidate in rollback_candidates:
+             candidate_syntax = _run_fixture_command(
+                 (
+-                    ["/bin/sh", "-n", str(candidate)]
++                    [SH_BIN, "-n", str(candidate)]
+                     if candidate.suffix.casefold() == ".sh"
+                     else [sys.executable, "-m", "py_compile", str(candidate)]
+                 ),
+@@ -1398,7 +1411,7 @@
+     sandbox: str,
+     timeout: int,
+ ) -> tuple[str, str, int, bool]:
+-    with tempfile.TemporaryDirectory(prefix="gpt56-issue-regression-") as tmp:
++    with acl_compatible_temporary_directory(prefix="gpt56-issue-regression-") as tmp:
+         tmpdir = Path(tmp)
+         response_path = tmpdir / "response.txt"
+         cmd = [
+@@ -2199,7 +2212,7 @@
+     seed_hashes: list[str] = []
+     role_sequence_before_scored_turn: list[str] = []
+ 
+-    with tempfile.TemporaryDirectory(prefix="gpt56-issue-native-attempt-") as tmp:
++    with acl_compatible_temporary_directory(prefix="gpt56-issue-native-attempt-") as tmp:
+         temporary = Path(tmp)
+         fixture_kind = str(row.get("workspace_fixture") or "")
+         if fixture_kind or cwd is None:
+@@ -2557,7 +2570,7 @@
+     scored: list[dict[str, object]] = []
+     raw_responses: list[tuple[tuple[int, int, int], str]] = []
+     raw_logs: list[tuple[tuple[int, int, int], str]] = []
+-    with tempfile.TemporaryDirectory(prefix="gpt56-issue-attempt-") as tmp:
++    with acl_compatible_temporary_directory(prefix="gpt56-issue-attempt-") as tmp:
+         fixture_kind = str(row.get("workspace_fixture") or "")
+         if fixture_kind or cwd is None:
+             workspace = Path(tmp) / "workspace"
+@@ -2883,7 +2896,7 @@
+         parsed=True,
+     )
+     assert "forbidden_marker" in scope_terminal["score_reasons"], scope_terminal
+-    with tempfile.TemporaryDirectory(prefix="gpt56-fixture-self-test-") as tmp:
++    with acl_compatible_temporary_directory(prefix="gpt56-fixture-self-test-") as tmp:
+         workspace = Path(tmp)
+         fixture_row = {"workspace_fixture": "issue5_activation_py"}
+         fixture_state = prepare_workspace_fixture(fixture_row, workspace)
+@@ -2938,7 +2951,7 @@
+         )
+         assert role_check["passed"], role_check
+         assert set(role_check["role_files"]) == {"patched_copy", "patch", "verification", "rollback"}
+-    with tempfile.TemporaryDirectory(prefix="gpt56-issue22-fixture-self-test-") as tmp:
++    with acl_compatible_temporary_directory(prefix="gpt56-issue22-fixture-self-test-") as tmp:
+         workspace = Path(tmp)
+         fixture_row = {"workspace_fixture": "issue22_card_login_py"}
+         fixture_state = prepare_workspace_fixture(fixture_row, workspace)

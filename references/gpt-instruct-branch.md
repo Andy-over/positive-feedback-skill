@@ -6,7 +6,9 @@
 
 在 skill 根目录运行 `python scripts/gpt_instruct_branch.py verify` 核对原始快照，运行 `python scripts/gpt_instruct_branch.py prepare --output OUTPUT_DIR` 生成完整工作副本，安全解包 `scripts/*.zip`，从发布 ZIP 还原公开包省略的明文源，并在副本中修复 Windows 文本写入换行。`OUTPUT_DIR` 必须不存在。原始分支只读，全部生成物和测试结果落在副本；不要把工作副本当作上游原始快照。`python scripts/gpt_instruct_branch.py test` 在一次性目录执行项目归档检查与单元测试，不部署提示词。无符号链接权限的 Windows 只跳过对应环境测试，并明确显示跳过；上游原始运行失败与副本兼容性结果应分开记录。
 
-`python scripts/gpt_instruct_branch.py evidence` 在一次性副本中重建公开的 66 行 Issue bank 和 360 行 Prompt bank，并对两个 runner 执行不调用模型的 `--dry-run`。它核对 [结构化已发布证据](gpt-instruct-evidence.json) 与原始文档、逐 family 计算 B 缺口；返回的 `new_model_evaluation` 始终是 `not_run`，不能把离线就绪检查说成新的模型通过率。当前已发布 B 为 52/66 cases、60/74 turns、15/16 artifact gates，低于 B 硬门槛，C 仍是 `not_run`。续作探针需要未公开的精确工作目录夹具；公开生成器不能替代它，不能伪称 A 已重新验证。
+在 Windows 上**确需运行 Issue 回归**时，准备副本可加 `--windows-eval-compat`。这只在副本中应用 [兼容补丁](../assets/gpt-instruct-windows-eval.patch)：使临时目录继承可供原生沙箱进入的 ACL，隔离 `HOME`/`CODEX_HOME`/XDG/TMP、仅保留最小沙箱配置、保护临时认证文件，并将 Unix `patch`/`sh` 调用映射至 Git for Windows。未加标志的 `prepare` 保持原评测脚本；78 个上游文件及 ZIP 均不变。兼容版 Issue runner/scorer 的哈希与上游不同，所得真实模型结果只能单列为新方法身份，不能并入已发布的 B 分数。先运行副本中的 `run_gpt56_sol_issue_regression.py --self-test`，通过后再运行所选样例；Prompt runner、续作探针及其他真实调用尚未通过本兼容补丁验证。评测输入若要求检查仓库源码，必须实际提供匹配的隔离工作目录；空目录上的拒绝编造补丁不应直接判作模型能力失败。
+
+`python scripts/gpt_instruct_branch.py evidence` 在一次性副本中重建公开的 66 行 Issue bank 和 360 行 Prompt bank，并对两个 runner 执行不调用模型的 `--dry-run`。它核对 [结构化已发布证据](gpt-instruct-evidence.json) 与原始文档、逐 family 计算 B 缺口；`offline_checks.source_context_required` 标出默认空工作区却要求真实源码及补丁的样例，运行前须补足对应隔离工作目录。返回的 `new_model_evaluation` 始终是 `not_run`，不能把离线就绪检查说成新的模型通过率。当前已发布 B 为 52/66 cases、60/74 turns、15/16 artifact gates，低于 B 硬门槛，C 仍是 `not_run`。续作探针需要未公开的精确工作目录夹具；公开生成器不能替代它，不能伪称 A 已重新验证。
 
 统一部署入口仅在用户明确要求时使用：
 

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,7 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 PROJECT = SKILL_ROOT / "branches" / "gpt-instruct"
 MANIFEST = SKILL_ROOT / "branches" / "gpt-instruct.manifest.json"
 EVIDENCE = SKILL_ROOT / "references" / "gpt-instruct-evidence.json"
+WINDOWS_EVAL_PATCH = SKILL_ROOT / "assets" / "gpt-instruct-windows-eval.patch"
 # Original archives remain untouched. Missing plaintext sources are reconstructed
 # only in prepared workspaces so the upstream archive-sync workflow can run.
 PROMPT_SOURCES = (
@@ -72,7 +74,9 @@ def safe_script_member(name: str) -> bool:
     return bool(name) and path.name == name and name.endswith(".py") and not path.is_absolute() and "\\" not in name
 
 
-def prepare(output: Path) -> dict[str, object]:
+def prepare(output: Path, windows_eval_compat: bool = False) -> dict[str, object]:
+    if windows_eval_compat and os.name != "nt":
+        raise ValueError("--windows-eval-compat is only for Windows evaluation")
     verified = verify()
     output = output.expanduser().resolve()
     if output.exists():
@@ -118,7 +122,28 @@ def prepare(output: Path) -> dict[str, object]:
     # Windows text mode otherwise changes packaged prompt LF bytes to CRLF.
     installer = output / "codex-instruct.py"
     installer.write_bytes(installer_source.replace(old, new))
-    return {**verified, "output": str(output), "unpacked_scripts": len(members), "restored_prompt_sources": restored, "compatibility_patch": "preserve prompt bytes on Windows"}
+    eval_compat = "not_requested"
+    if windows_eval_compat:
+        if not WINDOWS_EVAL_PATCH.is_file():
+            raise FileNotFoundError(WINDOWS_EVAL_PATCH)
+        # Git checkouts with core.autocrlf=true can turn .patch files into CRLF;
+        # git apply requires LF against the byte-preserved archive sources.
+        normalized_patch = output / ".gpt-instruct-eval-compat.patch"
+        normalized_patch.write_bytes(WINDOWS_EVAL_PATCH.read_bytes().replace(b"\r\n", b"\n"))
+        try:
+            applied = subprocess.run(
+                ["git", "-c", "core.autocrlf=false", "apply", str(normalized_patch)],
+                cwd=output, capture_output=True, text=True, encoding="utf-8", check=False,
+            )
+        finally:
+            normalized_patch.unlink()
+        if applied.returncode:
+            raise ValueError(f"Windows evaluator compatibility patch failed: {applied.stderr}")
+        eval_compat = "applied; runner/scorer method identity differs from upstream"
+    return {**verified, "output": str(output), "unpacked_scripts": len(members),
+            "restored_prompt_sources": restored,
+            "compatibility_patch": "preserve prompt bytes on Windows",
+            "windows_eval_compat": eval_compat}
 
 
 def test() -> int:
@@ -206,6 +231,17 @@ def evidence() -> dict[str, object]:
                   "prompt_bank": len(prompt.read_text(encoding="utf-8").splitlines())}
         if counts != {"issue_bank": 66, "prompt_bank": 360}:
             raise ValueError("generated bank sizes changed")
+        source_context_required = [
+            row["case_id"]
+            for row in (json.loads(line) for line in issue.read_text(encoding="utf-8").splitlines())
+            if not row.get("workspace_fixture") and not row.get("initial_transcript")
+            and any(
+                turn.get("forbid_fixture")
+                and re.search(r"\b(?:repository|source tree)\b", turn.get("user", ""), re.I)
+                and re.search(r"\b(?:patch|diff)\b", turn.get("user", ""), re.I)
+                for turn in row["turns"]
+            )
+        ]
         instruction_file = staged / "gpt-6-astra-v1.md"
         dry_runs = {}
         for script in ("run_gpt56_sol_issue_regression.py", "run_gpt56_sol_prompt_bank.py"):
@@ -224,6 +260,7 @@ def evidence() -> dict[str, object]:
     return {"status": "published_B_gate_not_met", "source_commit": verified["commit"],
             "published": published, "B_case_deficits": deficits,
             "offline_checks": {"generated_rows": counts, "bank_sha256": bank_hashes,
+                               "source_context_required": source_context_required,
                                "runner_dry_run_exit": dry_runs},
             "new_model_evaluation": "not_run", "model_invocations": 0}
 
@@ -267,6 +304,8 @@ def main() -> int:
     commands.add_parser("verify", help="verify every original project file")
     prepared = commands.add_parser("prepare", help="make a working copy and unpack script archives")
     prepared.add_argument("--output", required=True, type=Path)
+    prepared.add_argument("--windows-eval-compat", action="store_true",
+                          help="opt in to Windows native-sandbox evaluator compatibility in the disposable copy")
     commands.add_parser("test", help="run bundled project unit tests in isolation")
     commands.add_parser("evidence", help="audit published A/B/C gates and model-free runner readiness")
     preview = commands.add_parser("preview", help="dry-run instruction deployment without writing config")
@@ -286,7 +325,7 @@ def main() -> int:
         if args.command == "verify":
             result = verify()
         elif args.command == "prepare":
-            result = prepare(args.output)
+            result = prepare(args.output, args.windows_eval_compat)
         elif args.command == "evidence":
             result = evidence()
         else:

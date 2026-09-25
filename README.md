@@ -44,7 +44,7 @@ python scripts/gpt_instruct_branch.py test
 python scripts/gpt_instruct_branch.py evidence
 ```
 
-`evidence` 只重建公开测试集、检查 runner 的 dry-run 并复核已发表的 A/B/C 门禁，不产生新的模型成绩；当前公开 B 仍为 52/66 cases，C 未运行。需要隔离工作副本时，使用 `python scripts/gpt_instruct_branch.py prepare --output OUTPUT_DIR`。真实部署另有统一 `preview`、`deploy`、`reset` 入口；部署与重置须用户明确要求、指定既有 Codex 目录并加配置变更确认。更多边界与入口见 [分支说明](references/gpt-instruct-branch.md)。
+`evidence` 只重建公开测试集、检查 runner 的 dry-run 并复核已发表的 A/B/C 门禁，不产生新的模型成绩；当前公开 B 仍为 52/66 cases，C 未运行。需要隔离工作副本时，使用 `python scripts/gpt_instruct_branch.py prepare --output OUTPUT_DIR`。Windows 上运行真实 Issue 回归可显式添加 `--windows-eval-compat`，只修一次性副本的沙箱目录、认证文件保护和 Unix 命令兼容；它改变 runner/scorer 方法身份，结果不得并入上游已发表的 B 分数。离线检查会标记缺少真实源码上下文的样例，避免把合理的“不编造补丁”误算成模型能力缺陷。真实部署另有统一 `preview`、`deploy`、`reset` 入口；部署与重置须用户明确要求、指定既有 Codex 目录并加配置变更确认。更多边界与入口见 [分支说明](references/gpt-instruct-branch.md)。
 
 ## 安装与验证
 
